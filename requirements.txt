@@ -1,0 +1,17 @@
+fastapi
+uvicorn
+python-jose[cryptography]
+passlib[bcrypt]
+python-multipart
+pydantic
+numpy
+pandas
+scikit-learn
+xgboost==2.0.2
+joblib
+scapy
+pymongo
+python-dotenv
+bcrypt
+secure-smtplib
+jwt

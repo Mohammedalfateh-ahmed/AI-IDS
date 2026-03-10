@@ -1,0 +1,110 @@
+[
+  {
+    "timestamp": "2025-11-13T09:12:50.082459",
+    "attack_type": "DoS",
+    "confidence": 0.93,
+    "source_ip": "192.168.1.130",
+    "destination_ip": "10.0.0.120",
+    "details": "High packet rate detected - Potential Denial of Service",
+    "detected_by": "admin"
+  },
+  {
+    "timestamp": "2025-11-13T09:12:58.172694",
+    "attack_type": "Probe",
+    "confidence": 0.97,
+    "source_ip": "192.168.1.86",
+    "destination_ip": "10.0.0.244",
+    "details": "Port scanning activity detected",
+    "detected_by": "admin"
+  },
+  {
+    "timestamp": "2025-11-13T09:12:59.836496",
+    "attack_type": "R2L",
+    "confidence": 0.94,
+    "source_ip": "192.168.1.165",
+    "destination_ip": "10.0.0.140",
+    "details": "Unauthorized remote access attempt",
+    "detected_by": "admin"
+  },
+  {
+    "timestamp": "2025-11-13T09:13:01.491452",
+    "attack_type": "U2R",
+    "confidence": 0.89,
+    "source_ip": "192.168.1.106",
+    "destination_ip": "10.0.0.78",
+    "details": "Privilege escalation attempt detected",
+    "detected_by": "admin"
+  },
+  {
+    "timestamp": "2025-11-13T09:13:02.805202",
+    "attack_type": "Normal",
+    "confidence": 0.88,
+    "source_ip": "192.168.1.1",
+    "destination_ip": "10.0.0.240",
+    "details": "Normal traffic pattern",
+    "detected_by": "admin"
+  },
+  {
+    "timestamp": "2025-11-13T09:13:04.284587",
+    "attack_type": "DoS",
+    "confidence": 0.89,
+    "source_ip": "192.168.1.156",
+    "destination_ip": "10.0.0.68",
+    "details": "High packet rate detected - Potential Denial of Service",
+    "detected_by": "admin"
+  },
+  {
+    "timestamp": "2025-11-13T10:09:21.870687",
+    "attack_type": "DoS",
+    "confidence": 0.99,
+    "source_ip": "192.168.1.27",
+    "destination_ip": "10.0.0.139",
+    "details": "High packet rate detected - Potential Denial of Service",
+    "detected_by": "admin"
+  },
+  {
+    "timestamp": "2025-11-13T10:09:22.332685",
+    "attack_type": "Probe",
+    "confidence": 0.98,
+    "source_ip": "192.168.1.64",
+    "destination_ip": "10.0.0.1",
+    "details": "Port scanning activity detected",
+    "detected_by": "admin"
+  },
+  {
+    "timestamp": "2025-11-13T10:09:23.202547",
+    "attack_type": "R2L",
+    "confidence": 0.98,
+    "source_ip": "192.168.1.220",
+    "destination_ip": "10.0.0.51",
+    "details": "Unauthorized remote access attempt",
+    "detected_by": "admin"
+  },
+  {
+    "timestamp": "2025-11-13T10:09:23.603561",
+    "attack_type": "U2R",
+    "confidence": 0.95,
+    "source_ip": "192.168.1.140",
+    "destination_ip": "10.0.0.134",
+    "details": "Privilege escalation attempt detected",
+    "detected_by": "admin"
+  },
+  {
+    "timestamp": "2025-11-13T10:09:24.028906",
+    "attack_type": "Normal",
+    "confidence": 0.87,
+    "source_ip": "192.168.1.121",
+    "destination_ip": "10.0.0.95",
+    "details": "Normal traffic pattern",
+    "detected_by": "admin"
+  },
+  {
+    "timestamp": "2025-11-13T10:27:35.114925",
+    "attack_type": "Probe",
+    "confidence": 0.95,
+    "source_ip": "192.168.1.245",
+    "destination_ip": "10.0.0.130",
+    "details": "Port scanning activity detected",
+    "detected_by": "a"
+  }
+]

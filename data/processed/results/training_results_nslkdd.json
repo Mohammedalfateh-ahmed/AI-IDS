@@ -1,0 +1,20 @@
+{
+    "training_date": "2025-11-11 08:35:21",
+    "model_type": "XGBoost",
+    "dataset": "NSL-KDD",
+    "test_accuracy": 0.9144640647846136,
+    "num_classes": 11,
+    "classes": [
+        "back",
+        "guess_passwd",
+        "ipsweep",
+        "neptune",
+        "nmap",
+        "normal",
+        "pod",
+        "portsweep",
+        "satan",
+        "smurf",
+        "teardrop"
+    ]
+}

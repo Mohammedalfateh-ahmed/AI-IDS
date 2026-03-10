@@ -1,0 +1,19 @@
+{
+    "analysis_date": "2025-11-09 23:01:35",
+    "total_samples": 529918,
+    "total_features": 79,
+    "numeric_features": 78,
+    "object_features": 1,
+    "attack_types": 1,
+    "attack_list": [
+        "BENIGN"
+    ],
+    "missing_values": 64,
+    "infinite_values": 810,
+    "duplicate_rows": 26935,
+    "benign_count": 529918,
+    "attack_count": 0,
+    "benign_percentage": 100.0,
+    "attack_percentage": 0.0,
+    "memory_usage_mb": 343.1458034515381
+}

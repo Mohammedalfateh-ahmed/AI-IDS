@@ -1,0 +1,15 @@
+{
+  "admin": {
+    "username": "admin",
+    "email": "admin@ids.local",
+    "password": "$2b$12$ucwpWXH5CZG2hys3uGuLKudEVH9nBnKbib3xPKS9H5xfrsyJBbCae",
+    "role": "admin",
+    "created_at": "2025-11-13T08:56:40.950299",
+    "last_login": "2025-11-14T09:19:00.522474"
+  },
+  "mo": {
+    "username": "mo",
+    "password": "$2b$12$Yd6phgKlIepspO2eJrhPgOm0DBSa3M9UergI0Bei9jOgeuu3fOb6q",
+    "role": "user"
+  }
+}
