@@ -162817,3 +162817,5 @@ ConnectionResetError: [WinError 10054] An existing connection was forcibly close
 2026-03-10 09:58:29,692 | ERROR | PACKET_PROCESSING_ERROR | Error: Feature shape mismatch, expected: 122, got 41
 2026-03-10 09:58:29,771 | ERROR | PACKET_PROCESSING_ERROR | Error: Feature shape mismatch, expected: 122, got 41
 2026-03-10 09:58:29,772 | ERROR | PACKET_PROCESSING_ERROR | Error: Feature shape mismatch, expected: 122, got 41
+2026-03-10 11:24:55,293 | INFO | LOGIN_SUCCESS | User: admin | Role: admin
+2026-03-11 09:12:16,414 | INFO | LOGIN_SUCCESS | User: admin | Role: admin

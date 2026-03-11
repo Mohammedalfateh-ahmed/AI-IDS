@@ -19,9 +19,21 @@ from attack_intelligence import get_attack_info, should_auto_block, get_predicti
 from bson import ObjectId
 from feature_extraction import extract_features_from_packet, generate_attack_features, get_attack_category
 from intelligence_engine import intelligence_engine
-from email_service import send_critical_alert, send_high_risk_ip_notification
 from datetime import datetime, timedelta, timezone
 Path("logs").mkdir(exist_ok=True)
+
+try:
+    from email_service_professional import (
+        send_wazuh_style_alert,
+        send_daily_summary_wazuh_style,
+        send_critical_system_alert
+    )
+    print("✅ Professional email service loaded")
+except ImportError as e:
+    print(f"⚠️ Email service not available: {e}")
+    send_wazuh_style_alert = None
+    send_daily_summary_wazuh_style = None
+    send_critical_system_alert = None
 
 logging.basicConfig(
     level=logging.INFO,
@@ -38,10 +50,10 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3000",      # ← This is critical!
+        "http://localhost:3000",
         "http://localhost:5173",
         "http://localhost:8000",
-        "*"  # Allow all for development
+        "*"
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -181,7 +193,6 @@ async def login(request: LoginRequest):
     if not user or not bcrypt.checkpw(request.password.encode(), user["password"].encode()):
         logger.warning(f"LOGIN_FAILED | User: {request.username} | Reason: Invalid credentials")
         
-        # Log failed login to MongoDB
         system_logs_collection.insert_one({
             "timestamp": datetime.now(),
             "level": "ERROR",
@@ -194,7 +205,6 @@ async def login(request: LoginRequest):
     
     logger.info(f"LOGIN_SUCCESS | User: {request.username} | Role: {user['role']}")
     
-    # Log successful login to MongoDB
     system_logs_collection.insert_one({
         "timestamp": datetime.now(),
         "level": "LOGIN_SUCCESS",
@@ -215,6 +225,7 @@ async def login(request: LoginRequest):
             "role": user["role"]
         }
     }
+
 @app.get("/auth/me")
 async def get_current_user_info(current_user: dict = Depends(get_current_user)):
     return {
@@ -242,7 +253,6 @@ async def create_user(user_data: UserCreate, current_user: dict = Depends(get_cu
     }
     save_users(users)
     
-    # Log user creation to MongoDB
     system_logs_collection.insert_one({
         "timestamp": datetime.now(),
         "level": "INFO",
@@ -256,6 +266,7 @@ async def create_user(user_data: UserCreate, current_user: dict = Depends(get_cu
     })
     
     return {"message": "User created successfully"}
+
 @app.delete("/users/{username}")
 async def delete_user(username: str, current_user: dict = Depends(get_current_admin_user)):
     if username == "admin":
@@ -269,7 +280,6 @@ async def delete_user(username: str, current_user: dict = Depends(get_current_ad
     del users[username]
     save_users(users)
     
-    # Log user deletion to MongoDB
     system_logs_collection.insert_one({
         "timestamp": datetime.now(),
         "level": "WARNING",
@@ -313,6 +323,7 @@ async def get_stats(current_user: dict = Depends(get_current_user)):
     print(f"📊 Stats Response: Packets={stats['total_packets']}, Attacks={stats['attacks_detected']}, Normal={stats['benign_traffic']}, Alerts={len(alerts)}")
     
     return response_data
+
 @app.get("/alerts")
 async def get_alerts(current_user: dict = Depends(get_current_user)):
     print(f"📢 Alerts requested - Total: {len(alerts)}")
@@ -480,9 +491,11 @@ async def simulate_attack(attack_type: str = "random", current_user: dict = Depe
         result = alerts_collection.insert_one(alert_doc)
         alert_id = str(result.inserted_id)
         
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
         alerts.append({
             "id": alert_id,
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "timestamp": current_time,
             "source_ip": source_ip,
             "destination_ip": dest_ip,
             "attack_type": selected,
@@ -491,6 +504,21 @@ async def simulate_attack(attack_type: str = "random", current_user: dict = Depe
             "details": alert_doc["details"],
             "blocked": blocked
         })
+        
+        if send_wazuh_style_alert:
+            try:
+                send_wazuh_style_alert({
+                    'attack_type': selected,
+                    'severity': severity,
+                    'confidence': float(confidence),
+                    'source_ip': source_ip,
+                    'destination_ip': dest_ip,
+                    'blocked': blocked,
+                    'timestamp': current_time
+                })
+                print(f"📧 Email alert sent for {selected} attack")
+            except Exception as e:
+                print(f"❌ Email send failed: {e}")
         
         system_logs_collection.insert_one({
             "timestamp": datetime.now(),
@@ -519,6 +547,7 @@ async def simulate_attack(attack_type: str = "random", current_user: dict = Depe
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Simulation failed: {str(e)}")
+
 def capture_packets_live():
     global packets_captured, stats, alerts
     from scapy.all import sniff, IP
@@ -597,9 +626,11 @@ def capture_packets_live():
                     
                     result = alerts_collection.insert_one(alert_doc)
                     
+                    current_time = alert_doc["timestamp"].strftime("%Y-%m-%d %H:%M:%S")
+                    
                     new_alert = {
                         "id": str(result.inserted_id),
-                        "timestamp": alert_doc["timestamp"].strftime("%Y-%m-%d %H:%M:%S"),
+                        "timestamp": current_time,
                         "source_ip": source_ip,
                         "destination_ip": dest_ip,
                         "attack_type": str(pred_label),
@@ -609,6 +640,21 @@ def capture_packets_live():
                         "blocked": blocked
                     }
                     alerts.append(new_alert)
+                    
+                    if send_wazuh_style_alert:
+                        try:
+                            send_wazuh_style_alert({
+                                'attack_type': str(pred_label),
+                                'severity': severity,
+                                'confidence': confidence,
+                                'source_ip': source_ip,
+                                'destination_ip': dest_ip,
+                                'blocked': blocked,
+                                'timestamp': current_time
+                            })
+                            print(f"📧 Email alert sent for {pred_label} attack")
+                        except Exception as e:
+                            print(f"❌ Email send failed: {e}")
                     
                     pattern = attack_patterns_collection.find_one({
                         "attack_type": pred_label,
@@ -661,7 +707,7 @@ def capture_packets_live():
                 print(f"[!] Capture error: {e}")
     
     print(f"[+] Packet capture stopped. Total captured: {packets_captured}")
-    logger.error(f"CAPTURE_ERROR | Error: {str(e)}")
+
 @app.post("/capture/start")
 async def start_live_capture(current_user: dict = Depends(get_current_admin_user)):
     global capture_active, capture_thread, packets_captured
@@ -676,7 +722,6 @@ async def start_live_capture(current_user: dict = Depends(get_current_admin_user
     
     logger.info(f"PACKET_CAPTURE_STARTED | Admin: {current_user['username']} initiated live monitoring")
     
-    # Log capture start to MongoDB
     system_logs_collection.insert_one({
         "timestamp": datetime.now(),
         "level": "CAPTURE",
@@ -700,7 +745,6 @@ async def stop_live_capture(current_user: dict = Depends(get_current_admin_user)
     capture_active = False
     logger.info(f"PACKET_CAPTURE_STOPPED | Admin: {current_user['username']} stopped monitoring | Total packets: {packets_captured}")
     
-    # Log capture stop to MongoDB
     system_logs_collection.insert_one({
         "timestamp": datetime.now(),
         "level": "CAPTURE",
@@ -714,6 +758,7 @@ async def stop_live_capture(current_user: dict = Depends(get_current_admin_user)
     })
     
     return {"status": "success", "message": "Live packet capture stopped"}
+
 @app.get("/capture/stats")
 async def get_capture_stats(current_user: dict = Depends(get_current_user)):
     return {
@@ -754,6 +799,7 @@ async def get_logs(limit: int = 100, current_user: dict = Depends(get_current_us
     except Exception as e:
         logger.error(f"LOG_READ_ERROR | Error: {str(e)}")
         return {"logs": []}
+
 @app.get("/system-logs")
 async def get_system_logs(limit: int = 50, current_user: dict = Depends(get_current_user)):
     try:
@@ -805,6 +851,7 @@ async def get_blocked_ips(current_user: dict = Depends(get_current_user)):
     except Exception as e:
         logger.error(f"Error fetching blocked IPs: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/block-ip/{ip_address}")
 async def manual_block_ip(ip_address: str, current_user: dict = Depends(get_current_admin_user)):
     try:
@@ -840,6 +887,7 @@ async def manual_block_ip(ip_address: str, current_user: dict = Depends(get_curr
     except Exception as e:
         logger.error(f"Error blocking IP: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
 @app.delete("/unblock-ip/{ip_address}")
 async def unblock_ip(ip_address: str, current_user: dict = Depends(get_current_admin_user)):
     try:
@@ -864,6 +912,7 @@ async def unblock_ip(ip_address: str, current_user: dict = Depends(get_current_a
     except Exception as e:
         logger.error(f"Error unblocking IP: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/attack-prediction")
 async def get_attack_prediction(current_user: dict = Depends(get_current_user)):
     recent_alerts = list(alerts_collection.find().sort("timestamp", -1).limit(20))
@@ -959,6 +1008,7 @@ async def get_database_alerts(
         "page": skip // limit + 1,
         "pages": (total + limit - 1) // limit
     }
+
 @app.get("/test/model")
 async def test_model():
     if model is None:
@@ -988,6 +1038,7 @@ async def test_model():
             "status": "ERROR",
             "message": str(e)
         }    
+
 @app.get("/intelligence/ip-reputation/{ip_address}")
 async def get_ip_reputation(ip_address: str, current_user: dict = Depends(get_current_user)):
     reputation, risk_score = intelligence_engine.get_ip_reputation(ip_address)
@@ -1069,7 +1120,43 @@ async def get_attack_forecast(current_user: dict = Depends(get_current_user)):
         return {
             "forecast_available": False,
             "message": "Insufficient data for forecasting"
-        }        
+        }
+
+@app.get("/email/daily-summary")
+async def send_daily_summary_email(current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    if not send_daily_summary_wazuh_style:
+        raise HTTPException(status_code=503, detail="Email service not configured")
+    
+    total_alerts = alerts_collection.count_documents({})
+    blocked_count = blocked_ips_collection.count_documents({})
+    
+    attack_types = {}
+    for alert in alerts_collection.find():
+        attack_type = alert.get('attack_type', 'Unknown')
+        attack_types[attack_type] = attack_types.get(attack_type, 0) + 1
+    
+    unique_ips = len(set([alert.get('source_ip') for alert in alerts_collection.find()]))
+    
+    confidences = [alert.get('confidence', 0) for alert in alerts_collection.find()]
+    avg_confidence = sum(confidences) / len(confidences) if confidences else 0
+    
+    stats_data = {
+        'total_attacks': total_alerts,
+        'blocked_ips': blocked_count,
+        'attack_types': attack_types,
+        'unique_ips': unique_ips,
+        'avg_confidence': avg_confidence
+    }
+    
+    try:
+        send_daily_summary_wazuh_style(stats_data)
+        return {"status": "success", "message": "Daily summary email sent"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Email failed: {str(e)}")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
