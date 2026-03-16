@@ -8,6 +8,10 @@ import ThreatIntelligence from './ThreatIntelligence';
 import BlockedIPsPanel from './BlockedIPsPanel';
 import AttackPrediction from './AttackPrediction';
 import IntelligencePanel from './IntelligencePanel';
+import AttackDistributionChart from './AttackDistributionChart';
+import AttacksOverTimeChart from './AttacksOverTimeChart';
+import TopIPsChart from './TopIPsChart';
+import SeverityDistributionChart from './SeverityDistributionChart';
 
 export default function Dashboard({ user, onLogout }) {
   const [stats, setStats] = useState({ 
@@ -35,6 +39,16 @@ export default function Dashboard({ user, onLogout }) {
     const interval = setInterval(fetchData, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (showUserMenu && !event.target.closest('.user-menu-container')) {
+        setShowUserMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showUserMenu]);
 
   const fetchData = async () => {
     try {
@@ -127,11 +141,11 @@ export default function Dashboard({ user, onLogout }) {
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-3">
               <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
-                <span className="text-2xl font-bold">W.</span>
+                <span className="text-2xl font-bold">A</span>
               </div>
               <div>
-                <h1 className="text-xl font-bold">IDS Platform</h1>
-                <p className="text-blue-200 text-xs">Security Information Dashboard</p>
+                <h1 className="text-xl font-bold">AI-IDS Platform</h1>
+                <p className="text-blue-200 text-xs">Security Monitoring Dashboard</p>
               </div>
             </div>
           </div>
@@ -149,7 +163,7 @@ export default function Dashboard({ user, onLogout }) {
               </svg>
             </button>
 
-            <div className="relative">
+            <div className="relative user-menu-container">
               <button onClick={() => setShowUserMenu(!showUserMenu)} className="flex items-center space-x-2 px-3 py-2 hover:bg-white/10 rounded-lg">
                 <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center font-semibold">
                   {user?.username?.charAt(0).toUpperCase()}
@@ -177,11 +191,12 @@ export default function Dashboard({ user, onLogout }) {
           <div className="flex space-x-1">
             {[
               { id: 'overview', name: 'Dashboard' },
+              { id: 'analytics', name: 'Analytics' },
               { id: 'threats', name: 'Events' },
               { id: 'intelligence', name: 'Intelligence' },
               { id: 'logs', name: 'Logs' }
             ].map(tab => (
-              <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+              <button key={tab.id} onClick={() => { setActiveTab(tab.id); setShowUserMenu(false); }}
                 className={`px-6 py-3 font-medium rounded-t-lg transition-colors ${
                   activeTab === tab.id ? 'bg-gray-100 text-blue-600' : 'text-white/80 hover:text-white hover:bg-white/10'
                 }`}>
@@ -249,7 +264,7 @@ export default function Dashboard({ user, onLogout }) {
                 <div className="space-y-4">
                   <div className="p-4 bg-gray-50 rounded-lg text-center">
                     <div className="text-sm text-gray-500 mb-1">XGBoost NSL-KDD</div>
-                    <div className="text-xs text-gray-400">41 Features • 5 Classes</div>
+                    <div className="text-xs text-gray-400">122 Features • 5 Classes</div>
                   </div>
                   {[
                     { label: 'Accuracy', value: modelInfo?.accuracy, color: 'green' },
@@ -287,6 +302,51 @@ export default function Dashboard({ user, onLogout }) {
             </div>
 
             <PacketCaptureControl user={user} />
+          </div>
+        )}
+
+        {activeTab === 'analytics' && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <AttackDistributionChart data={stats?.attack_types} />
+              <SeverityDistributionChart alerts={alerts} />
+            </div>
+
+            <div>
+              <AttacksOverTimeChart alerts={alerts} />
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <TopIPsChart alerts={alerts} />
+              
+              <div className="bg-white rounded-lg shadow p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Detection Statistics</h3>
+                <div className="space-y-3">
+                  <div className="flex justify-between py-3 border-b">
+                    <span className="text-gray-600">Total Events Analyzed</span>
+                    <span className="font-bold text-gray-900">{stats.total_packets}</span>
+                  </div>
+                  <div className="flex justify-between py-3 border-b">
+                    <span className="text-gray-600">Attacks Detected</span>
+                    <span className="font-bold text-red-600">{stats.attacks_detected}</span>
+                  </div>
+                  <div className="flex justify-between py-3 border-b">
+                    <span className="text-gray-600">Normal Traffic</span>
+                    <span className="font-bold text-green-600">{stats.benign_traffic}</span>
+                  </div>
+                  <div className="flex justify-between py-3 border-b">
+                    <span className="text-gray-600">Detection Rate</span>
+                    <span className="font-bold text-blue-600">
+                      {stats.total_packets > 0 ? ((stats.attacks_detected / stats.total_packets) * 100).toFixed(1) : 0}%
+                    </span>
+                  </div>
+                  <div className="flex justify-between py-3">
+                    <span className="text-gray-600">Avg Confidence</span>
+                    <span className="font-bold text-purple-600">{(stats.average_confidence * 100).toFixed(1)}%</span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 

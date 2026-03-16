@@ -115,6 +115,7 @@ This Intrusion Detection System leverages artificial intelligence and machine le
 - **Axios**: HTTP client
 - **React Hot Toast**: Toast notifications
 - **Lucide React**: Icon library
+                   recharts date-fns
 
 ### Machine Learning
 - **Dataset**: NSL-KDD (Network Security Dataset)

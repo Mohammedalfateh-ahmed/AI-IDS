@@ -1,0 +1,19 @@
+{
+  "ips_enabled": false,
+  "auto_block_enabled": true,
+  "whitelist_ips": [
+    "127.0.0.1",
+    "::1"
+  ],
+  "block_duration_minutes": 0,
+  "confidence_threshold": 0.85,
+  "severity_threshold": "High",
+  "auto_block_attacks": [
+    "neptune",
+    "smurf",
+    "back",
+    "teardrop",
+    "pod",
+    "land"
+  ]
+}
