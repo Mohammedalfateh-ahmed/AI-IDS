@@ -20,8 +20,34 @@ from bson import ObjectId
 from feature_extraction import extract_features_from_packet, generate_attack_features, get_attack_category
 from intelligence_engine import intelligence_engine
 from datetime import datetime, timedelta, timezone
-Path("logs").mkdir(exist_ok=True)
+from smart_ips_system import smart_ips
 
+Path("logs").mkdir(exist_ok=True)
+def is_ips_enabled():
+    try:
+        settings_file = Path("data/ips_config.json")
+        if settings_file.exists():
+            with open(settings_file, 'r') as f:
+                return json.load(f).get("ips_enabled", True)
+    except:
+        pass
+    return True  # Default ENABLED
+
+def should_auto_block_with_ips(attack_type: str, confidence: float, severity: str):
+    if not is_ips_enabled():
+        return False
+    try:
+        settings_file = Path("data/ips_config.json")
+        settings = json.load(open(settings_file)) if settings_file.exists() else {
+            "confidence_threshold": 0.85,
+            "severity_threshold": "High",
+            "auto_block_attacks": ["neptune", "smurf", "back", "teardrop"]
+        }
+        if confidence < settings.get("confidence_threshold", 0.85):
+            return False
+        return attack_type.lower() in [a.lower() for a in settings.get("auto_block_attacks", [])]
+    except:
+        return confidence >= 0.85
 try:
     from email_service_professional import (
         send_wazuh_style_alert,
@@ -456,19 +482,30 @@ async def simulate_attack(attack_type: str = "random", current_user: dict = Depe
         dest_ip = "192.168.1.1"
         
         blocked = False
-        if should_auto_block(selected, confidence):
-            existing = blocked_ips_collection.find_one({"ip_address": source_ip})
-            if not existing:
-                blocked_ips_collection.insert_one({
-                    "ip_address": source_ip,
-                    "reason": f"Auto-blocked: {selected}",
-                    "blocked_at": datetime.now(),
-                    "threat_level": severity,
-                    "attack_count": 1,
-                    "blocked_by": current_user['username']
-                })
-                blocked = True
+        firewall_blocked = False
         
+        if should_auto_block_with_ips(selected, confidence, severity):
+            if source_ip not in ["127.0.0.1", "::1"]:
+                if not blocked_ips_collection.find_one({"ip_address": source_ip}):
+                    blocked_ips_collection.insert_one({
+                        "ip_address": source_ip,
+                        "reason": f"Auto-blocked: {selected}",
+                        "blocked_at": datetime.now(),
+                        "threat_level": severity,
+                        "attack_count": 1,
+                        "blocked_by": current_user['username']
+                    })
+                    blocked = True
+                    
+                    if should_auto_block_attack(selected, confidence, severity):
+                        fw_result = firewall_controller.block_ip(source_ip, selected)
+                        if fw_result["success"]:
+                            firewall_blocked = True
+                            blocked_ips_collection.update_one(
+                                {"ip_address": source_ip},
+                                {"$set": {"firewall_blocked": True, "firewall_blocked_at": datetime.now()}}
+                            )
+                            print(f"🔥 FIREWALL BLOCKED: {source_ip} for {selected}")
         anomaly_score = intelligence_engine.calculate_anomaly_score(feature_vector)
         risk_score = intelligence_engine.calculate_risk_score(source_ip, selected, confidence, anomaly_score)
         threat_level = intelligence_engine.get_threat_level(risk_score)
@@ -1156,6 +1193,521 @@ async def send_daily_summary_email(current_user: dict = Depends(get_current_user
         return {"status": "success", "message": "Daily summary email sent"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Email failed: {str(e)}")
+# ============================================
+# SMART IPS API ENDPOINTS - ADD TO main.py
+# ============================================
+# Add these BEFORE: if __name__ == "__main__":
+# ============================================
+
+from smart_ips_system import smart_ips
+
+# ============================================
+# IPS STATUS & CONTROL
+# ============================================
+
+@app.get("/ips/status")
+async def get_ips_status(current_user: dict = Depends(get_current_user)):
+    """Get complete IPS system status"""
+    status = smart_ips.get_system_status()
+    
+    return {
+        "system": status,
+        "firewall_available": status["firewall_available"],
+        "operational": status["status"] == "operational",
+        "message": "IPS fully operational" if status["firewall_available"] else "IPS running (database-only mode)"
+    }
+
+
+@app.post("/ips/enable")
+async def enable_ips(current_user: dict = Depends(get_current_admin_user)):
+    """Enable IPS system"""
+    config = smart_ips.get_config()
+    config["ips_enabled"] = True
+    config["auto_block_enabled"] = True
+    smart_ips.update_config(config)
+    
+    logger.info(f"IPS_ENABLED | Admin: {current_user['username']}")
+    
+    system_logs_collection.insert_one({
+        "timestamp": datetime.now(),
+        "level": "INFO",
+        "message": "IPS system enabled - Auto-blocking active",
+        "user": current_user['username']
+    })
+    
+    return {
+        "success": True,
+        "message": "IPS enabled - Smart threat blocking active",
+        "ips_enabled": True
+    }
+
+
+@app.post("/ips/disable")
+async def disable_ips(current_user: dict = Depends(get_current_admin_user)):
+    """Disable IPS system"""
+    config = smart_ips.get_config()
+    config["ips_enabled"] = False
+    smart_ips.update_config(config)
+    
+    logger.info(f"IPS_DISABLED | Admin: {current_user['username']}")
+    
+    system_logs_collection.insert_one({
+        "timestamp": datetime.now(),
+        "level": "WARNING",
+        "message": "IPS system disabled - Monitoring only",
+        "user": current_user['username']
+    })
+    
+    return {
+        "success": True,
+        "message": "IPS disabled - Detection continues without blocking",
+        "ips_enabled": False
+    }
+
+
+@app.get("/ips/settings")
+async def get_ips_settings(current_user: dict = Depends(get_current_admin_user)):
+    """Get IPS configuration"""
+    return smart_ips.get_config()
+
+
+@app.post("/ips/settings")
+async def update_ips_settings(
+    settings: dict,
+    current_user: dict = Depends(get_current_admin_user)
+):
+    """Update IPS configuration"""
+    smart_ips.update_config(settings)
+    
+    logger.info(f"IPS_SETTINGS_UPDATED | Admin: {current_user['username']}")
+    
+    return {
+        "success": True,
+        "message": "IPS settings updated successfully",
+        "settings": smart_ips.get_config()
+    }
+
+
+# ============================================
+# FIREWALL MANAGEMENT
+# ============================================
+
+@app.get("/firewall/blocked-ips")
+async def get_firewall_blocked_ips(current_user: dict = Depends(get_current_admin_user)):
+    """Get list of blocked IPs from firewall"""
+    blocks = smart_ips.list_firewall_blocks()
+    
+    return {
+        "blocked_ips": blocks,
+        "count": len(blocks),
+        "firewall_status": smart_ips.get_system_status()
+    }
+
+
+@app.post("/firewall/block/{ip_address}")
+async def manual_firewall_block(
+    ip_address: str,
+    attack_type: str = "Manual Block",
+    block_type: str = "permanent",
+    current_user: dict = Depends(get_current_admin_user)
+):
+    """Manually block an IP in firewall"""
+    
+    if smart_ips.is_whitelisted(ip_address):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot block whitelisted IP: {ip_address}"
+        )
+    
+    result = smart_ips.block_ip_firewall(ip_address, attack_type, block_type)
+    
+    if result["success"]:
+        blocked_ips_collection.update_one(
+            {"ip_address": ip_address},
+            {
+                "$set": {
+                    "ip_address": ip_address,
+                    "reason": f"Manual block: {attack_type}",
+                    "blocked_at": datetime.now(),
+                    "blocked_by": current_user['username'],
+                    "firewall_blocked": True,
+                    "block_type": block_type
+                }
+            },
+            upsert=True
+        )
+        
+        system_logs_collection.insert_one({
+            "timestamp": datetime.now(),
+            "level": "WARNING",
+            "message": f"IP {ip_address} manually blocked in firewall",
+            "user": current_user['username'],
+            "details": {"ip": ip_address, "attack_type": attack_type, "block_type": block_type}
+        })
+    
+    return result
+
+
+@app.delete("/firewall/unblock/{ip_address}")
+async def manual_firewall_unblock(
+    ip_address: str,
+    current_user: dict = Depends(get_current_admin_user)
+):
+    """Manually unblock an IP from firewall"""
+    result = smart_ips.unblock_ip_firewall(ip_address)
+    
+    if result["success"]:
+        blocked_ips_collection.delete_one({"ip_address": ip_address})
+        
+        system_logs_collection.insert_one({
+            "timestamp": datetime.now(),
+            "level": "INFO",
+            "message": f"IP {ip_address} manually unblocked",
+            "user": current_user['username'],
+            "details": {"ip": ip_address}
+        })
+    
+    return result
+
+
+@app.post("/firewall/clear-all")
+async def clear_all_firewall_blocks(current_user: dict = Depends(get_current_admin_user)):
+    """Clear all firewall block rules"""
+    result = smart_ips.clear_all_firewall_rules()
+    
+    if result["success"]:
+        blocked_ips_collection.delete_many({})
+        
+        system_logs_collection.insert_one({
+            "timestamp": datetime.now(),
+            "level": "WARNING",
+            "message": f"All firewall rules cleared - {result['cleared']} rules removed",
+            "user": current_user['username']
+        })
+    
+    return result
+
+
+@app.post("/firewall/auto-unblock")
+async def trigger_auto_unblock(current_user: dict = Depends(get_current_admin_user)):
+    """Manually trigger auto-unblock of expired temporary blocks"""
+    count = smart_ips.auto_unblock_expired()
+    
+    return {
+        "success": True,
+        "unblocked_count": count,
+        "message": f"Auto-unblocked {count} expired temporary blocks"
+    }
+
+
+# ============================================
+# WHITELIST MANAGEMENT
+# ============================================
+
+@app.get("/ips/whitelist")
+async def get_whitelist(current_user: dict = Depends(get_current_admin_user)):
+    """Get whitelist"""
+    return {
+        "whitelist": smart_ips.whitelist,
+        "count": len(smart_ips.whitelist)
+    }
+
+
+@app.post("/ips/whitelist/add/{ip_address}")
+async def add_to_whitelist(
+    ip_address: str,
+    current_user: dict = Depends(get_current_admin_user)
+):
+    """Add IP to whitelist"""
+    success = smart_ips.add_to_whitelist(ip_address)
+    
+    if success:
+        system_logs_collection.insert_one({
+            "timestamp": datetime.now(),
+            "level": "INFO",
+            "message": f"IP {ip_address} added to whitelist",
+            "user": current_user['username']
+        })
+        
+        return {
+            "success": True,
+            "message": f"IP {ip_address} added to whitelist"
+        }
+    else:
+        return {
+            "success": False,
+            "message": f"IP {ip_address} already in whitelist"
+        }
+
+
+@app.delete("/ips/whitelist/remove/{ip_address}")
+async def remove_from_whitelist(
+    ip_address: str,
+    current_user: dict = Depends(get_current_admin_user)
+):
+    """Remove IP from whitelist"""
+    success = smart_ips.remove_from_whitelist(ip_address)
+    
+    if success:
+        system_logs_collection.insert_one({
+            "timestamp": datetime.now(),
+            "level": "WARNING",
+            "message": f"IP {ip_address} removed from whitelist",
+            "user": current_user['username']
+        })
+        
+        return {
+            "success": True,
+            "message": f"IP {ip_address} removed from whitelist"
+        }
+    else:
+        return {
+            "success": False,
+            "message": f"IP {ip_address} not in whitelist"
+        }
+
+
+# ============================================
+# THREAT INTELLIGENCE
+# ============================================
+
+@app.get("/ips/top-threats")
+async def get_top_threats(
+    limit: int = 10,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get top threat IPs"""
+    threats = smart_ips.get_top_threats(limit)
+    
+    return {
+        "top_threats": threats,
+        "count": len(threats)
+    }
+
+
+@app.get("/ips/threat-score/{ip_address}")
+async def get_ip_threat_score(
+    ip_address: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get threat score for specific IP"""
+    
+    if ip_address in smart_ips.threat_tracking:
+        tracking = smart_ips.threat_tracking[ip_address]
+        
+        return {
+            "ip_address": ip_address,
+            "threat_score": tracking["total_threat_score"],
+            "attack_count": tracking["attack_count"],
+            "attack_types": tracking["attack_types"],
+            "first_seen": tracking["first_seen"],
+            "last_seen": tracking["last_seen"],
+            "is_blocked": ip_address in smart_ips.blocked_ips,
+            "is_whitelisted": smart_ips.is_whitelisted(ip_address)
+        }
+    else:
+        return {
+            "ip_address": ip_address,
+            "threat_score": 0,
+            "attack_count": 0,
+            "attack_types": [],
+            "status": "Unknown IP - Not tracked yet"
+        }
+
+
+# ============================================
+# SYSTEM STATISTICS
+# ============================================
+
+@app.get("/ips/statistics")
+async def get_ips_statistics(current_user: dict = Depends(get_current_user)):
+    """Get IPS system statistics"""
+    
+    total_tracked = len(smart_ips.threat_tracking)
+    total_blocked = len(smart_ips.blocked_ips)
+    
+    threat_distribution = {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0
+    }
+    
+    for ip, tracking in smart_ips.threat_tracking.items():
+        score = tracking["total_threat_score"]
+        if score >= 85:
+            threat_distribution["critical"] += 1
+        elif score >= 60:
+            threat_distribution["high"] += 1
+        elif score >= 30:
+            threat_distribution["medium"] += 1
+        else:
+            threat_distribution["low"] += 1
+    
+    temp_blocks = sum(1 for data in smart_ips.blocked_ips.values() if data.get("block_type") == "temporary")
+    perm_blocks = sum(1 for data in smart_ips.blocked_ips.values() if data.get("block_type") == "permanent")
+    
+    return {
+        "total_tracked_ips": total_tracked,
+        "total_blocked_ips": total_blocked,
+        "temporary_blocks": temp_blocks,
+        "permanent_blocks": perm_blocks,
+        "threat_distribution": threat_distribution,
+        "whitelist_count": len(smart_ips.whitelist),
+        "config": smart_ips.get_config()
+    }# ============================================
+# IPS ENDPOINTS - ADD THESE TO main.py
+# ============================================
+
+@app.get("/ips/status")
+async def get_ips_status(current_user: dict = Depends(get_current_user)):
+    """Get IPS system status - always active"""
+    import platform
+    
+    return {
+        "system": {
+            "ips_enabled": True,
+            "auto_block_enabled": True,
+            "firewall_available": False,
+            "is_windows": platform.system() == "Windows",
+            "total_blocked_ips": blocked_ips_collection.count_documents({}),
+            "total_tracked_ips": blocked_ips_collection.count_documents({}),
+            "status": "operational"
+        },
+        "operational": True
+    }
+
+
+@app.get("/ips/top-threats")
+async def get_top_threats(
+    limit: int = 10,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get top threat IPs ranked by attack count"""
+    try:
+        pipeline = [
+            {"$group": {
+                "_id": "$ip_address",
+                "attack_count": {"$sum": "$attack_count"},
+                "threat_score": {"$max": "$threat_level"},
+                "attack_types": {"$addToSet": "$reason"},
+                "is_blocked": {"$max": 1}
+            }},
+            {"$sort": {"attack_count": -1}},
+            {"$limit": limit}
+        ]
+        
+        threats = list(blocked_ips_collection.aggregate(pipeline))
+        
+        threat_scores = {
+            "Critical": 95,
+            "High": 75,
+            "Medium": 50,
+            "Low": 25
+        }
+        
+        formatted_threats = []
+        for threat in threats:
+            score = threat_scores.get(threat.get("threat_score", "Low"), 50)
+            formatted_threats.append({
+                "ip_address": threat["_id"],
+                "attack_count": threat["attack_count"],
+                "threat_score": score,
+                "attack_types": [t.replace("Auto-blocked: ", "") for t in threat.get("attack_types", [])],
+                "is_blocked": True
+            })
+        
+        return {"top_threats": formatted_threats}
+    
+    except Exception as e:
+        logger.error(f"Error fetching top threats: {str(e)}")
+        return {"top_threats": []}
+
+
+@app.get("/ips/statistics")
+async def get_ips_statistics(current_user: dict = Depends(get_current_user)):
+    """Get IPS system statistics"""
+    try:
+        total_blocked = blocked_ips_collection.count_documents({})
+        
+        threat_distribution = {
+            "critical": blocked_ips_collection.count_documents({"threat_level": "Critical"}),
+            "high": blocked_ips_collection.count_documents({"threat_level": "High"}),
+            "medium": blocked_ips_collection.count_documents({"threat_level": "Medium"}),
+            "low": blocked_ips_collection.count_documents({"threat_level": "Low"})
+        }
+        
+        return {
+            "total_blocked_ips": total_blocked,
+            "total_tracked_ips": total_blocked,
+            "temporary_blocks": 0,
+            "permanent_blocks": total_blocked,
+            "threat_distribution": threat_distribution,
+            "whitelist_count": 4
+        }
+    
+    except Exception as e:
+        logger.error(f"Error fetching statistics: {str(e)}")
+        return {
+            "total_blocked_ips": 0,
+            "total_tracked_ips": 0,
+            "temporary_blocks": 0,
+            "permanent_blocks": 0,
+            "threat_distribution": {"critical": 0, "high": 0, "medium": 0, "low": 0},
+            "whitelist_count": 0
+        }
+
+
+@app.get("/ips/settings")
+async def get_ips_settings(current_user: dict = Depends(get_current_admin_user)):
+    """Get IPS configuration settings"""
+    settings_file = Path("data/ips_config.json")
+    
+    default_settings = {
+        "ips_enabled": True,
+        "auto_block_enabled": True,
+        "confidence_threshold": 0.75,
+        "threat_score_threshold": 70,
+        "rate_limit_enabled": True,
+        "firewall_blocking_enabled": False,
+        "auto_unblock_enabled": True,
+        "email_alerts_enabled": True
+    }
+    
+    try:
+        if settings_file.exists():
+            with open(settings_file, 'r') as f:
+                loaded = json.load(f)
+                default_settings.update(loaded)
+    except:
+        pass
+    
+    return default_settings
+
+
+@app.post("/ips/settings")
+async def update_ips_settings(
+    settings: dict,
+    current_user: dict = Depends(get_current_admin_user)
+):
+    """Update IPS configuration"""
+    settings_file = Path("data/ips_config.json")
+    settings_file.parent.mkdir(exist_ok=True)
+    
+    try:
+        with open(settings_file, 'w') as f:
+            json.dump(settings, f, indent=2)
+        
+        logger.info(f"IPS_SETTINGS_UPDATED | Admin: {current_user['username']}")
+        
+        return {
+            "success": True,
+            "message": "Settings updated successfully",
+            "settings": settings
+        }
+    except Exception as e:
+        logger.error(f"Failed to update settings: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to update settings")
 
 if __name__ == "__main__":
     import uvicorn

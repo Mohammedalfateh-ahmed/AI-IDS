@@ -176899,3 +176899,22 @@ ConnectionResetError: [WinError 10054] An existing connection was forcibly close
 2026-03-16 11:13:37,795 | ERROR | PACKET_PROCESSING_ERROR | Error: Feature shape mismatch, expected: 122, got 41
 2026-03-16 11:13:37,798 | ERROR | PACKET_PROCESSING_ERROR | Error: Feature shape mismatch, expected: 122, got 41
 2026-03-16 11:13:37,816 | ERROR | PACKET_PROCESSING_ERROR | Error: Feature shape mismatch, expected: 122, got 41
+2026-03-16 15:35:06,056 | WARNING | LOGIN_FAILED | User: admin | Reason: Invalid credentials
+2026-03-16 15:35:08,309 | INFO | LOGIN_SUCCESS | User: admin | Role: admin
+2026-03-17 09:30:48,702 | INFO | LOGIN_SUCCESS | User: admin | Role: admin
+2026-03-17 10:25:14,095 | INFO | LOGIN_SUCCESS | User: admin | Role: admin
+2026-03-17 10:45:51,652 | INFO | LOGIN_SUCCESS | User: admin | Role: admin
+2026-03-17 10:47:08,963 | INFO | LOGIN_SUCCESS | User: admin | Role: admin
+2026-03-17 10:47:20,276 | INFO | IPS_ENABLED | Admin: admin
+2026-03-17 12:48:50,468 | WARNING | LOGIN_FAILED | User: admin | Reason: Invalid credentials
+2026-03-17 12:48:55,964 | WARNING | LOGIN_FAILED | User: admin | Reason: Invalid credentials
+2026-03-17 12:49:08,676 | INFO | LOGIN_SUCCESS | User: admin | Role: admin
+2026-03-17 12:50:03,931 | INFO | IPS_DISABLED | Admin: admin
+2026-03-23 11:01:02,820 | WARNING | LOGIN_FAILED | User: admin | Reason: Invalid credentials
+2026-03-23 11:01:08,249 | WARNING | LOGIN_FAILED | User: admin | Reason: Invalid credentials
+2026-03-23 11:01:19,953 | WARNING | LOGIN_FAILED | User: admin | Reason: Invalid credentials
+2026-03-23 11:01:27,944 | INFO | LOGIN_SUCCESS | User: admin | Role: admin
+2026-03-23 12:28:37,619 | INFO | LOGIN_SUCCESS | User: admin | Role: admin
+2026-03-24 13:15:02,501 | WARNING | LOGIN_FAILED | User: admin | Reason: Invalid credentials
+2026-03-24 13:15:11,968 | WARNING | LOGIN_FAILED | User: admin | Reason: Invalid credentials
+2026-03-24 13:15:25,536 | INFO | LOGIN_SUCCESS | User: admin | Role: admin

@@ -12,6 +12,7 @@ import AttackDistributionChart from './AttackDistributionChart';
 import AttacksOverTimeChart from './AttacksOverTimeChart';
 import TopIPsChart from './TopIPsChart';
 import SeverityDistributionChart from './SeverityDistributionChart';
+import IPSControlPanel from './IPSControlPanel';
 
 export default function Dashboard({ user, onLogout }) {
   const [stats, setStats] = useState({ 
@@ -194,6 +195,7 @@ export default function Dashboard({ user, onLogout }) {
               { id: 'analytics', name: 'Analytics' },
               { id: 'threats', name: 'Events' },
               { id: 'intelligence', name: 'Intelligence' },
+              { id: 'ips', name: 'IPS System' },
               { id: 'logs', name: 'Logs' }
             ].map(tab => (
               <button key={tab.id} onClick={() => { setActiveTab(tab.id); setShowUserMenu(false); }}
@@ -437,6 +439,10 @@ export default function Dashboard({ user, onLogout }) {
             <AttackPrediction />
             <BlockedIPsPanel userRole={user?.role} />
           </div>
+        )}
+
+        {activeTab === 'ips' && (
+          <IPSControlPanel />
         )}
 
         {activeTab === 'logs' && <SystemLogs user={user} />}
