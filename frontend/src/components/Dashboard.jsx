@@ -195,7 +195,7 @@ export default function Dashboard({ user, onLogout }) {
               { id: 'analytics', name: 'Analytics' },
               { id: 'threats', name: 'Events' },
               { id: 'intelligence', name: 'Intelligence' },
-              
+              { id: 'behavioral', name: 'Behavioral Analysis' }, // NEW
               { id: 'logs', name: 'Logs' }
             ].map(tab => (
               <button key={tab.id} onClick={() => { setActiveTab(tab.id); setShowUserMenu(false); }}
@@ -441,9 +441,10 @@ export default function Dashboard({ user, onLogout }) {
           </div>
         )}
 
+        {activeTab === 'behavioral' && <BehavioralAnomalyWidget />}
+
         {activeTab === 'ips' && (
           <IPSControlPanel />
-        
         )}
 
         {activeTab === 'logs' && <SystemLogs user={user} />}
