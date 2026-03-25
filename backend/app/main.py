@@ -21,7 +21,7 @@ from feature_extraction import extract_features_from_packet, generate_attack_fea
 from intelligence_engine import intelligence_engine
 from datetime import datetime, timedelta, timezone
 from smart_ips_system import smart_ips
-
+from behavior_analyzer import behavior_analyzer
 Path("logs").mkdir(exist_ok=True)
 def is_ips_enabled():
     try:
@@ -401,6 +401,10 @@ async def get_model_info(current_user: dict = Depends(get_current_user)):
             "training_dataset": "NSL-KDD Dataset",
             "attack_classes": []
         }
+# ============================================
+# UPDATED /simulate ENDPOINT WITH BEHAVIORAL ANALYSIS
+# ============================================
+# Replace your existing /simulate endpoint with this version
 
 @app.post("/simulate")
 async def simulate_attack(attack_type: str = "random", current_user: dict = Depends(get_current_user)):
@@ -419,17 +423,25 @@ async def simulate_attack(attack_type: str = "random", current_user: dict = Depe
         
         stats["total_packets"] += 1
         
+        # === HANDLE NORMAL TRAFFIC ===
         if attack_type_lower == "normal":
             stats["benign_traffic"] += 1
-            print(f"✅ NORMAL TRAFFIC - Packets: {stats['total_packets']}, Normal: {stats['benign_traffic']}, Attacks: {stats['attacks_detected']}")
             
-            system_logs_collection.insert_one({
-                "timestamp": datetime.now(),
-                "level": "INFO",
-                "message": "Normal traffic - No threat",
-                "user": current_user['username'],
-                "details": {"type": "normal", "confidence": 0.95}
-            })
+            source_ip = f"192.168.1.{np.random.randint(10, 99)}"
+            
+            # Behavioral Analysis for Normal Traffic
+            packet_data = {
+                'size': np.random.randint(500, 1500),
+                'port': np.random.choice([80, 443, 22, 53]),
+                'protocol': 'TCP',
+                'timestamp': datetime.now()
+            }
+            
+            behavior_result = behavior_analyzer.detect_anomaly(source_ip, packet_data)
+            
+            # Log if normal traffic shows anomalous behavior (potential zero-day!)
+            if behavior_result['is_anomalous']:
+                logger.warning(f"⚠️ ANOMALOUS NORMAL TRAFFIC | IP: {source_ip} | Score: {behavior_result['anomaly_score']}")
             
             return {
                 "prediction": "normal",
@@ -438,9 +450,16 @@ async def simulate_attack(attack_type: str = "random", current_user: dict = Depe
                 "blocked": False,
                 "attack_category": "Normal",
                 "risk_score": 0.0,
-                "threat_level": "None"
+                "threat_level": "None",
+                "behavioral_analysis": {
+                    "anomaly_score": behavior_result['anomaly_score'],
+                    "risk_level": behavior_result['risk_level'],
+                    "is_anomalous": behavior_result['is_anomalous'],
+                    "baseline_learned": behavior_result['baseline_learned']
+                }
             }
         
+        # === SELECT ATTACK TYPE ===
         if attack_type_lower == "dos":
             selected = np.random.choice(dos_attacks)
             category = "DoS"
@@ -457,23 +476,25 @@ async def simulate_attack(attack_type: str = "random", current_user: dict = Depe
             selected = np.random.choice(dos_attacks + probe_attacks)
             category = "DoS" if selected in dos_attacks else "Probe"
         
+        # === ML MODEL PREDICTION ===
         feature_vector = generate_attack_features(selected)
         
         try:
             pred_proba = model.predict_proba(feature_vector)
-            confidence = float(np.max(pred_proba))
-            if confidence < 0.7:
-                confidence = np.random.uniform(0.78, 0.95)
+            ml_confidence = float(np.max(pred_proba))
+            if ml_confidence < 0.7:
+                ml_confidence = np.random.uniform(0.78, 0.95)
         except:
-            confidence = np.random.uniform(0.80, 0.95)
+            ml_confidence = np.random.uniform(0.80, 0.95)
         
         stats["attacks_detected"] += 1
         
-        if confidence > 0.9:
+        # === SEVERITY BASED ON ML CONFIDENCE ===
+        if ml_confidence > 0.9:
             severity = "Critical"
-        elif confidence > 0.8:
+        elif ml_confidence > 0.8:
             severity = "High"
-        elif confidence > 0.65:
+        elif ml_confidence > 0.65:
             severity = "Medium"
         else:
             severity = "Low"
@@ -481,48 +502,106 @@ async def simulate_attack(attack_type: str = "random", current_user: dict = Depe
         source_ip = f"192.168.1.{np.random.randint(100, 250)}"
         dest_ip = "192.168.1.1"
         
-        blocked = False
-        firewall_blocked = False
+        # === BEHAVIORAL ANALYSIS ===
+        # Simulate attack-like packet characteristics
+        if selected in dos_attacks:
+            # DoS: Many small packets, high rate
+            packet_data = {
+                'size': np.random.randint(40, 200),  # Small packets
+                'port': np.random.choice([80, 443]),
+                'protocol': 'TCP',
+                'timestamp': datetime.now()
+            }
+        elif selected in probe_attacks:
+            # Probe: Various ports, normal size
+            packet_data = {
+                'size': np.random.randint(60, 100),
+                'port': np.random.randint(1, 65535),  # Random ports (scanning)
+                'protocol': 'TCP',
+                'timestamp': datetime.now()
+            }
+        elif selected in u2r_attacks:
+            # U2R: Large packets, unusual ports
+            packet_data = {
+                'size': np.random.randint(5000, 15000),  # Large packets
+                'port': np.random.choice([4444, 31337, 12345]),  # Backdoor ports
+                'protocol': 'TCP',
+                'timestamp': datetime.now()
+            }
+        else:
+            # R2L: Normal packets
+            packet_data = {
+                'size': np.random.randint(500, 2000),
+                'port': np.random.choice([21, 23, 110]),
+                'protocol': 'TCP',
+                'timestamp': datetime.now()
+            }
         
-        if should_auto_block_with_ips(selected, confidence, severity):
+        behavior_result = behavior_analyzer.detect_anomaly(source_ip, packet_data)
+        
+        # === COMBINED DECISION: ML + BEHAVIOR ===
+        # Block if EITHER ML model OR behavior analysis flags as threat
+        should_block_ml = should_auto_block_with_ips(selected, ml_confidence, severity)
+        should_block_behavior = behavior_result['is_anomalous'] and behavior_result['anomaly_score'] >= 60
+        
+        blocked = False
+        block_reason = None
+        
+        if should_block_ml or should_block_behavior:
             if source_ip not in ["127.0.0.1", "::1"]:
                 if not blocked_ips_collection.find_one({"ip_address": source_ip}):
+                    # Determine block reason
+                    if should_block_ml and should_block_behavior:
+                        block_reason = f"ML + Behavioral: {selected} attack with anomaly score {behavior_result['anomaly_score']}"
+                    elif should_block_ml:
+                        block_reason = f"ML Detection: {selected} attack"
+                    else:
+                        block_reason = f"Behavioral Anomaly: Score {behavior_result['anomaly_score']} - {behavior_result['risk_level']}"
+                    
                     blocked_ips_collection.insert_one({
                         "ip_address": source_ip,
-                        "reason": f"Auto-blocked: {selected}",
+                        "reason": block_reason,
                         "blocked_at": datetime.now(),
                         "threat_level": severity,
                         "attack_count": 1,
-                        "blocked_by": current_user['username']
+                        "blocked_by": current_user['username'],
+                        "ml_confidence": ml_confidence,
+                        "behavioral_score": behavior_result['anomaly_score'],
+                        "block_method": "COMBINED" if should_block_ml and should_block_behavior else "BEHAVIORAL_ONLY" if should_block_behavior else "ML_ONLY"
                     })
                     blocked = True
                     
-                    if should_auto_block_attack(selected, confidence, severity):
-                        fw_result = firewall_controller.block_ip(source_ip, selected)
-                        if fw_result["success"]:
-                            firewall_blocked = True
-                            blocked_ips_collection.update_one(
-                                {"ip_address": source_ip},
-                                {"$set": {"firewall_blocked": True, "firewall_blocked_at": datetime.now()}}
-                            )
-                            print(f"🔥 FIREWALL BLOCKED: {source_ip} for {selected}")
-        anomaly_score = intelligence_engine.calculate_anomaly_score(feature_vector)
-        risk_score = intelligence_engine.calculate_risk_score(source_ip, selected, confidence, anomaly_score)
+                    logger.warning(f"🔒 BLOCKED | IP: {source_ip} | Reason: {block_reason}")
+        
+        # === CALCULATE RISK SCORE ===
+        anomaly_score = behavior_result['anomaly_score']
+        risk_score = intelligence_engine.calculate_risk_score(
+            source_ip, selected, ml_confidence, anomaly_score
+        )
         threat_level = intelligence_engine.get_threat_level(risk_score)
         
+        # === STORE ALERT ===
         alert_doc = {
             "timestamp": datetime.now(),
             "source_ip": source_ip,
             "destination_ip": dest_ip,
             "attack_type": selected,
-            "confidence": float(confidence),
+            "confidence": float(ml_confidence),
             "severity": severity,
             "details": f"{category} attack: {selected}",
             "user_detected": current_user['username'],
             "blocked": blocked,
+            "block_reason": block_reason,
             "anomaly_score": float(anomaly_score),
             "risk_score": float(risk_score),
-            "threat_level": threat_level
+            "threat_level": threat_level,
+            "behavioral_analysis": {
+                "anomaly_score": behavior_result['anomaly_score'],
+                "risk_level": behavior_result['risk_level'],
+                "is_anomalous": behavior_result['is_anomalous'],
+                "anomalies_detected": behavior_result['anomalies_detected'],
+                "baseline_learned": behavior_result['baseline_learned']
+            }
         }
         
         result = alerts_collection.insert_one(alert_doc)
@@ -536,55 +615,74 @@ async def simulate_attack(attack_type: str = "random", current_user: dict = Depe
             "source_ip": source_ip,
             "destination_ip": dest_ip,
             "attack_type": selected,
-            "confidence": float(confidence),
+            "confidence": float(ml_confidence),
             "severity": severity,
             "details": alert_doc["details"],
             "blocked": blocked
         })
         
-        if send_wazuh_style_alert:
+        # === EMAIL ALERT ===
+        if send_wazuh_style_alert and blocked:
             try:
                 send_wazuh_style_alert({
                     'attack_type': selected,
                     'severity': severity,
-                    'confidence': float(confidence),
+                    'confidence': float(ml_confidence),
                     'source_ip': source_ip,
                     'destination_ip': dest_ip,
                     'blocked': blocked,
-                    'timestamp': current_time
+                    'timestamp': current_time,
+                    'behavioral_score': behavior_result['anomaly_score']
                 })
-                print(f"📧 Email alert sent for {selected} attack")
             except Exception as e:
-                print(f"❌ Email send failed: {e}")
+                logger.error(f"❌ Email send failed: {e}")
         
+        # === LOG ===
         system_logs_collection.insert_one({
             "timestamp": datetime.now(),
             "level": "ALERT",
-            "message": f"{selected} attack from {source_ip}",
+            "message": f"{selected} attack from {source_ip} - Behavioral Score: {anomaly_score}",
             "user": current_user['username'],
-            "details": {"attack": selected, "confidence": float(confidence), "severity": severity}
+            "details": {
+                "attack": selected,
+                "ml_confidence": float(ml_confidence),
+                "severity": severity,
+                "blocked": blocked,
+                "behavioral_score": anomaly_score,
+                "risk_level": behavior_result['risk_level']
+            }
         })
         
-        print(f"🚨 ATTACK: {selected} ({category}) - {confidence*100:.1f}% - Blocked: {blocked}")
-        print(f"📊 Stats - Packets: {stats['total_packets']}, Attacks: {stats['attacks_detected']}, Normal: {stats['benign_traffic']}")
+        logger.info(f"🚨 ATTACK: {selected} ({category}) - ML: {ml_confidence*100:.1f}% | Behavior: {anomaly_score}/100 - Blocked: {blocked}")
         
+        # === RETURN RESPONSE ===
         return {
             "prediction": selected,
-            "confidence": float(confidence),
+            "confidence": float(ml_confidence),
             "severity": severity,
             "blocked": blocked,
+            "block_reason": block_reason,
             "alert_id": alert_id,
             "attack_category": category,
             "risk_score": float(risk_score),
-            "threat_level": threat_level
+            "threat_level": threat_level,
+            "behavioral_analysis": {
+                "anomaly_score": behavior_result['anomaly_score'],
+                "risk_level": behavior_result['risk_level'],
+                "is_anomalous": behavior_result['is_anomalous'],
+                "anomalies_detected": behavior_result['anomalies_detected'],
+                "recommendation": behavior_result['recommendation'],
+                "baseline_learned": behavior_result['baseline_learned'],
+                "packets_analyzed": behavior_result['packets_analyzed']
+            }
         }
     
     except Exception as e:
-        print(f"❌ SIMULATION ERROR: {str(e)}")
+        logger.error(f"❌ SIMULATION ERROR: {str(e)}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Simulation failed: {str(e)}")
-
+        
 def capture_packets_live():
     global packets_captured, stats, alerts
     from scapy.all import sniff, IP
@@ -1398,317 +1496,138 @@ async def trigger_auto_unblock(current_user: dict = Depends(get_current_admin_us
         "unblocked_count": count,
         "message": f"Auto-unblocked {count} expired temporary blocks"
     }
-
-
 # ============================================
-# WHITELIST MANAGEMENT
+# BEHAVIORAL ANOMALY DETECTION ENDPOINTS
 # ============================================
+# Add these to main.py BEFORE: if __name__ == "__main__":
+# Import at top: from behavior_analyzer import behavior_analyzer
 
-@app.get("/ips/whitelist")
-async def get_whitelist(current_user: dict = Depends(get_current_admin_user)):
-    """Get whitelist"""
-    return {
-        "whitelist": smart_ips.whitelist,
-        "count": len(smart_ips.whitelist)
-    }
+from behavior_analyzer import behavior_analyzer
 
-
-@app.post("/ips/whitelist/add/{ip_address}")
-async def add_to_whitelist(
-    ip_address: str,
-    current_user: dict = Depends(get_current_admin_user)
-):
-    """Add IP to whitelist"""
-    success = smart_ips.add_to_whitelist(ip_address)
-    
-    if success:
-        system_logs_collection.insert_one({
-            "timestamp": datetime.now(),
-            "level": "INFO",
-            "message": f"IP {ip_address} added to whitelist",
-            "user": current_user['username']
-        })
-        
-        return {
-            "success": True,
-            "message": f"IP {ip_address} added to whitelist"
-        }
-    else:
-        return {
-            "success": False,
-            "message": f"IP {ip_address} already in whitelist"
-        }
-
-
-@app.delete("/ips/whitelist/remove/{ip_address}")
-async def remove_from_whitelist(
-    ip_address: str,
-    current_user: dict = Depends(get_current_admin_user)
-):
-    """Remove IP from whitelist"""
-    success = smart_ips.remove_from_whitelist(ip_address)
-    
-    if success:
-        system_logs_collection.insert_one({
-            "timestamp": datetime.now(),
-            "level": "WARNING",
-            "message": f"IP {ip_address} removed from whitelist",
-            "user": current_user['username']
-        })
-        
-        return {
-            "success": True,
-            "message": f"IP {ip_address} removed from whitelist"
-        }
-    else:
-        return {
-            "success": False,
-            "message": f"IP {ip_address} not in whitelist"
-        }
-
-
-# ============================================
-# THREAT INTELLIGENCE
-# ============================================
-
-@app.get("/ips/top-threats")
-async def get_top_threats(
-    limit: int = 10,
-    current_user: dict = Depends(get_current_user)
-):
-    """Get top threat IPs"""
-    threats = smart_ips.get_top_threats(limit)
-    
-    return {
-        "top_threats": threats,
-        "count": len(threats)
-    }
-
-
-@app.get("/ips/threat-score/{ip_address}")
-async def get_ip_threat_score(
-    ip_address: str,
-    current_user: dict = Depends(get_current_user)
-):
-    """Get threat score for specific IP"""
-    
-    if ip_address in smart_ips.threat_tracking:
-        tracking = smart_ips.threat_tracking[ip_address]
-        
-        return {
-            "ip_address": ip_address,
-            "threat_score": tracking["total_threat_score"],
-            "attack_count": tracking["attack_count"],
-            "attack_types": tracking["attack_types"],
-            "first_seen": tracking["first_seen"],
-            "last_seen": tracking["last_seen"],
-            "is_blocked": ip_address in smart_ips.blocked_ips,
-            "is_whitelisted": smart_ips.is_whitelisted(ip_address)
-        }
-    else:
-        return {
-            "ip_address": ip_address,
-            "threat_score": 0,
-            "attack_count": 0,
-            "attack_types": [],
-            "status": "Unknown IP - Not tracked yet"
-        }
-
-
-# ============================================
-# SYSTEM STATISTICS
-# ============================================
-
-@app.get("/ips/statistics")
-async def get_ips_statistics(current_user: dict = Depends(get_current_user)):
-    """Get IPS system statistics"""
-    
-    total_tracked = len(smart_ips.threat_tracking)
-    total_blocked = len(smart_ips.blocked_ips)
-    
-    threat_distribution = {
-        "critical": 0,
-        "high": 0,
-        "medium": 0,
-        "low": 0
-    }
-    
-    for ip, tracking in smart_ips.threat_tracking.items():
-        score = tracking["total_threat_score"]
-        if score >= 85:
-            threat_distribution["critical"] += 1
-        elif score >= 60:
-            threat_distribution["high"] += 1
-        elif score >= 30:
-            threat_distribution["medium"] += 1
-        else:
-            threat_distribution["low"] += 1
-    
-    temp_blocks = sum(1 for data in smart_ips.blocked_ips.values() if data.get("block_type") == "temporary")
-    perm_blocks = sum(1 for data in smart_ips.blocked_ips.values() if data.get("block_type") == "permanent")
-    
-    return {
-        "total_tracked_ips": total_tracked,
-        "total_blocked_ips": total_blocked,
-        "temporary_blocks": temp_blocks,
-        "permanent_blocks": perm_blocks,
-        "threat_distribution": threat_distribution,
-        "whitelist_count": len(smart_ips.whitelist),
-        "config": smart_ips.get_config()
-    }# ============================================
-# IPS ENDPOINTS - ADD THESE TO main.py
-# ============================================
-
-@app.get("/ips/status")
-async def get_ips_status(current_user: dict = Depends(get_current_user)):
-    """Get IPS system status - always active"""
-    import platform
-    
-    return {
-        "system": {
-            "ips_enabled": True,
-            "auto_block_enabled": True,
-            "firewall_available": False,
-            "is_windows": platform.system() == "Windows",
-            "total_blocked_ips": blocked_ips_collection.count_documents({}),
-            "total_tracked_ips": blocked_ips_collection.count_documents({}),
-            "status": "operational"
-        },
-        "operational": True
-    }
-
-
-@app.get("/ips/top-threats")
-async def get_top_threats(
-    limit: int = 10,
-    current_user: dict = Depends(get_current_user)
-):
-    """Get top threat IPs ranked by attack count"""
+@app.get("/behavior/statistics")
+async def get_behavior_statistics(current_user: dict = Depends(get_current_user)):
+    """Get behavioral analysis system statistics"""
     try:
-        pipeline = [
-            {"$group": {
-                "_id": "$ip_address",
-                "attack_count": {"$sum": "$attack_count"},
-                "threat_score": {"$max": "$threat_level"},
-                "attack_types": {"$addToSet": "$reason"},
-                "is_blocked": {"$max": 1}
-            }},
-            {"$sort": {"attack_count": -1}},
-            {"$limit": limit}
-        ]
-        
-        threats = list(blocked_ips_collection.aggregate(pipeline))
-        
-        threat_scores = {
-            "Critical": 95,
-            "High": 75,
-            "Medium": 50,
-            "Low": 25
+        stats = behavior_analyzer.get_statistics()
+        return {
+            "success": True,
+            "statistics": stats
         }
+    except Exception as e:
+        logger.error(f"Error getting behavior statistics: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/behavior/ip/{ip_address}")
+async def get_ip_behavior_profile(
+    ip_address: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get behavioral profile for specific IP"""
+    try:
+        profile = behavior_analyzer.get_ip_profile_summary(ip_address)
+        return {
+            "success": True,
+            "profile": profile
+        }
+    except Exception as e:
+        logger.error(f"Error getting IP profile: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/behavior/anomalies")
+async def get_behavioral_anomalies(
+    limit: int = 50,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get recent behavioral anomalies detected"""
+    try:
+        anomalies = behavior_analyzer.get_all_anomalies(limit=limit)
         
-        formatted_threats = []
-        for threat in threats:
-            score = threat_scores.get(threat.get("threat_score", "Low"), 50)
-            formatted_threats.append({
-                "ip_address": threat["_id"],
-                "attack_count": threat["attack_count"],
-                "threat_score": score,
-                "attack_types": [t.replace("Auto-blocked: ", "") for t in threat.get("attack_types", [])],
-                "is_blocked": True
+        # Convert to JSON-serializable format
+        formatted_anomalies = []
+        for anomaly in anomalies:
+            formatted_anomalies.append({
+                'timestamp': anomaly['timestamp'].isoformat(),
+                'ip': anomaly['ip'],
+                'anomaly_score': anomaly['score'],
+                'risk_level': anomaly['risk_level'],
+                'anomalies': anomaly['anomalies']
             })
         
-        return {"top_threats": formatted_threats}
-    
-    except Exception as e:
-        logger.error(f"Error fetching top threats: {str(e)}")
-        return {"top_threats": []}
-
-
-@app.get("/ips/statistics")
-async def get_ips_statistics(current_user: dict = Depends(get_current_user)):
-    """Get IPS system statistics"""
-    try:
-        total_blocked = blocked_ips_collection.count_documents({})
-        
-        threat_distribution = {
-            "critical": blocked_ips_collection.count_documents({"threat_level": "Critical"}),
-            "high": blocked_ips_collection.count_documents({"threat_level": "High"}),
-            "medium": blocked_ips_collection.count_documents({"threat_level": "Medium"}),
-            "low": blocked_ips_collection.count_documents({"threat_level": "Low"})
-        }
-        
         return {
-            "total_blocked_ips": total_blocked,
-            "total_tracked_ips": total_blocked,
-            "temporary_blocks": 0,
-            "permanent_blocks": total_blocked,
-            "threat_distribution": threat_distribution,
-            "whitelist_count": 4
+            "success": True,
+            "anomalies": formatted_anomalies,
+            "total": len(formatted_anomalies)
         }
-    
     except Exception as e:
-        logger.error(f"Error fetching statistics: {str(e)}")
-        return {
-            "total_blocked_ips": 0,
-            "total_tracked_ips": 0,
-            "temporary_blocks": 0,
-            "permanent_blocks": 0,
-            "threat_distribution": {"critical": 0, "high": 0, "medium": 0, "low": 0},
-            "whitelist_count": 0
-        }
+        logger.error(f"Error getting anomalies: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/ips/settings")
-async def get_ips_settings(current_user: dict = Depends(get_current_admin_user)):
-    """Get IPS configuration settings"""
-    settings_file = Path("data/ips_config.json")
-    
-    default_settings = {
-        "ips_enabled": True,
-        "auto_block_enabled": True,
-        "confidence_threshold": 0.75,
-        "threat_score_threshold": 70,
-        "rate_limit_enabled": True,
-        "firewall_blocking_enabled": False,
-        "auto_unblock_enabled": True,
-        "email_alerts_enabled": True
-    }
-    
-    try:
-        if settings_file.exists():
-            with open(settings_file, 'r') as f:
-                loaded = json.load(f)
-                default_settings.update(loaded)
-    except:
-        pass
-    
-    return default_settings
-
-
-@app.post("/ips/settings")
-async def update_ips_settings(
-    settings: dict,
-    current_user: dict = Depends(get_current_admin_user)
+@app.get("/behavior/top-anomalous-ips")
+async def get_top_anomalous_ips(
+    limit: int = 10,
+    current_user: dict = Depends(get_current_user)
 ):
-    """Update IPS configuration"""
-    settings_file = Path("data/ips_config.json")
-    settings_file.parent.mkdir(exist_ok=True)
-    
+    """Get IPs with most anomalous behavior"""
     try:
-        with open(settings_file, 'w') as f:
-            json.dump(settings, f, indent=2)
+        anomalies = behavior_analyzer.get_all_anomalies(limit=1000)
         
-        logger.info(f"IPS_SETTINGS_UPDATED | Admin: {current_user['username']}")
+        # Count anomalies per IP
+        ip_anomaly_counts = {}
+        ip_max_scores = {}
+        
+        for anomaly in anomalies:
+            ip = anomaly['ip']
+            score = anomaly['score']
+            
+            if ip not in ip_anomaly_counts:
+                ip_anomaly_counts[ip] = 0
+                ip_max_scores[ip] = 0
+            
+            ip_anomaly_counts[ip] += 1
+            ip_max_scores[ip] = max(ip_max_scores[ip], score)
+        
+        # Sort by anomaly count
+        top_ips = sorted(
+            ip_anomaly_counts.items(),
+            key=lambda x: (x[1], ip_max_scores[x[0]]),
+            reverse=True
+        )[:limit]
+        
+        result = []
+        for ip, count in top_ips:
+            profile = behavior_analyzer.get_ip_profile_summary(ip)
+            result.append({
+                'ip_address': ip,
+                'anomaly_count': count,
+                'max_anomaly_score': round(ip_max_scores[ip], 2),
+                'packets_observed': profile.get('packets_observed', 0),
+                'baseline_learned': profile.get('baseline_learned', False)
+            })
         
         return {
             "success": True,
-            "message": "Settings updated successfully",
-            "settings": settings
+            "top_anomalous_ips": result
         }
     except Exception as e:
-        logger.error(f"Failed to update settings: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to update settings")
+        logger.error(f"Error getting top anomalous IPs: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.post("/behavior/save-profiles")
+async def save_behavior_profiles(current_user: dict = Depends(get_current_admin_user)):
+    """Manually save behavioral profiles to disk"""
+    try:
+        behavior_analyzer.save_profiles()
+        return {
+            "success": True,
+            "message": "Behavioral profiles saved successfully"
+        }
+    except Exception as e:
+        logger.error(f"Error saving profiles: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))    
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
