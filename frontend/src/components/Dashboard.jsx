@@ -12,7 +12,7 @@ import AttackDistributionChart from './AttackDistributionChart';
 import AttacksOverTimeChart from './AttacksOverTimeChart';
 import TopIPsChart from './TopIPsChart';
 import SeverityDistributionChart from './SeverityDistributionChart';
-
+import BehavioralAnomalyWidget from './BehavioralAnomalyWidget';
 
 export default function Dashboard({ user, onLogout }) {
   const [stats, setStats] = useState({ 
@@ -443,14 +443,17 @@ export default function Dashboard({ user, onLogout }) {
 
         {activeTab === 'ips' && (
           <IPSControlPanel />
+        
         )}
 
         {activeTab === 'logs' && <SystemLogs user={user} />}
+        
       </main>
 
       {showThreatIntel && selectedAttackType && (
         <ThreatIntelligence attackType={selectedAttackType} onClose={() => setShowThreatIntel(false)} />
       )}
+      
     </div>
   );
 }
