@@ -1,0 +1,3 @@
+2026-03-26 12:04:29,353 | INFO | 🚨 ATTACK: satan (Probe) - ML: 84.4% | Behavior: 0.0/100 - Blocked: False
+2026-03-26 12:04:29,697 | INFO | 🚨 ATTACK: imap (R2L) - ML: 84.8% | Behavior: 0.0/100 - Blocked: False
+2026-03-26 12:04:30,240 | INFO | 🚨 ATTACK: rootkit (U2R) - ML: 86.0% | Behavior: 0.0/100 - Blocked: False

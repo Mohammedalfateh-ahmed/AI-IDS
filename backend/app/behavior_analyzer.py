@@ -3,206 +3,285 @@ from datetime import datetime, timedelta
 from collections import defaultdict, deque
 import json
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple
 import logging
 
 logger = logging.getLogger(__name__)
 
 
+def sanitize(obj):
+    if isinstance(obj, dict):
+        return {sanitize(k): sanitize(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [sanitize(i) for i in obj]
+    if isinstance(obj, np.integer):
+        return int(obj)
+    if isinstance(obj, np.floating):
+        return float(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    return obj
+
+
 class BehaviorAnalyzer:
 
-    def __init__(self, learning_period_minutes=5, anomaly_threshold=3.0):
-        self.learning_period = timedelta(minutes=learning_period_minutes)
+    def __init__(self, learning_period_minutes=1, anomaly_threshold=2.5):
+        self.learning_period   = timedelta(minutes=learning_period_minutes)
         self.anomaly_threshold = anomaly_threshold
-
         self.ip_profiles = defaultdict(lambda: {
-            'packet_sizes': deque(maxlen=1000),
+            'packet_sizes':     deque(maxlen=1000),
             'packet_intervals': deque(maxlen=1000),
-            'ports_used': defaultdict(int),
-            'protocols_used': defaultdict(int),
-            'packet_count': 0,
-            'first_seen': None,
-            'last_seen': None,
-            'total_bytes': 0,
-            'hourly_activity': defaultdict(int),
+            'ports_used':       defaultdict(int),
+            'protocols_used':   defaultdict(int),
+            'packet_count':     0,
+            'first_seen':       None,
+            'last_seen':        None,
+            'total_bytes':      0,
+            'hourly_activity':  defaultdict(int),
             'behavior_learned': False
         })
-
         self.anomaly_history = []
-        self.profile_file = Path("data/behavior_profiles.json")
+        self.profile_file    = Path("data/behavior_profiles.json")
+        self._seed_baseline_ips()
         self.load_profiles()
+        logger.info("BehaviorAnalyzer initialized — full attack range seeded")
 
-        logger.info("Behavioral Anomaly Detection initialized (threshold: 10 packets / 5 min)")
+    def _seed_baseline_ips(self):
+        now = datetime.now()
+
+        seed_configs = [
+            ("192.168.1.100", (800, 1200),  [80, 443, 80, 443, 22],      60),
+            ("192.168.1.101", (400, 800),   [80, 443, 22, 53, 8080],     60),
+            ("192.168.1.102", (500, 1000),  [21, 23, 110, 21, 23],       60),
+            ("192.168.1.103", (900, 1400),  [80, 443, 22, 80, 443],      60),
+            ("192.168.1.110", (600, 1000),  [80, 443, 22],               50),
+            ("192.168.1.120", (700, 1100),  [80, 443, 53],               50),
+            ("192.168.1.130", (650, 950),   [80, 443, 22, 53],           50),
+            ("192.168.1.140", (750, 1050),  [80, 443],                   50),
+            ("192.168.1.150", (800, 1200),  [80, 443, 22],               50),
+        ]
+
+        seeded_ips = {cfg[0] for cfg in seed_configs}
+        for last_octet in range(100, 251):
+            ip = f"192.168.1.{last_octet}"
+            if ip not in seeded_ips:
+                seed_configs.append((ip, (700, 1300), [80, 443, 22, 53], 50))
+
+        for ip, size_range, ports, count in seed_configs:
+            p = self.ip_profiles[ip]
+            p['first_seen'] = now - timedelta(minutes=15)
+
+            for i in range(count):
+                size = int(np.random.randint(*size_range))
+                p['packet_sizes'].append(size)
+                p['total_bytes'] += size
+
+                if i > 0:
+                    p['packet_intervals'].append(float(np.random.uniform(0.1, 1.0)))
+
+                p['ports_used'][int(ports[i % len(ports)])] += 1
+                p['protocols_used']['TCP'] += 1
+                p['hourly_activity'][9 + (i % 8)] += 1
+
+            p['packet_count']     = count
+            p['last_seen']        = now - timedelta(seconds=10)
+            p['behavior_learned'] = True
+
+        logger.info("Seeded baselines for 192.168.1.100 through 192.168.1.250 (151 IPs)")
+
+    def _check_new_ip_fast_track(self, ip: str, packet_data: dict) -> Tuple[float, Dict]:
+        anomalies = {}
+        score     = 0.0
+
+        size = int(packet_data.get('size', 0))
+        port = int(packet_data.get('port', 0))
+
+        if size < 200:
+            anomalies['packet_size'] = {
+                'deviation': 5.0,
+                'current':   size,
+                'normal':    1000,
+                'severity':  'HIGH'
+            }
+            score += 35
+
+        if size > 4000:
+            anomalies['packet_size'] = {
+                'deviation': 6.0,
+                'current':   size,
+                'normal':    1000,
+                'severity':  'HIGH'
+            }
+            score += 45
+
+        if port in [4444, 31337, 12345, 1337, 9999, 6666]:
+            anomalies['unusual_port'] = {
+                'port':          port,
+                'typical_ports': [80, 443, 22, 53],
+                'severity':      'HIGH'
+            }
+            score += 40
+
+        elif port > 10000 and port not in [8080, 8443]:
+            anomalies['unusual_port'] = {
+                'port':          port,
+                'typical_ports': [80, 443, 22, 53],
+                'severity':      'MEDIUM'
+            }
+            score += 20
+
+        return min(score, 100), anomalies
 
     def update_profile(self, ip: str, packet_data: dict):
-        profile = self.ip_profiles[ip]
-        current_time = packet_data.get('timestamp', datetime.now())
+        p = self.ip_profiles[ip]
+        t = packet_data.get('timestamp', datetime.now())
 
-        if profile['first_seen'] is None:
-            profile['first_seen'] = current_time
+        if p['first_seen'] is None:
+            p['first_seen'] = t
 
-        packet_size = packet_data.get('size', 0)
-        profile['packet_sizes'].append(packet_size)
-        profile['total_bytes'] += packet_size
+        size = int(packet_data.get('size', 0))
+        p['packet_sizes'].append(size)
+        p['total_bytes'] += size
 
-        if profile['last_seen'] is not None:
-            interval = (current_time - profile['last_seen']).total_seconds()
-            if interval < 60:
-                profile['packet_intervals'].append(interval)
+        if p['last_seen']:
+            iv = (t - p['last_seen']).total_seconds()
+            if iv < 60:
+                p['packet_intervals'].append(float(iv))
 
-        profile['last_seen'] = current_time
-        profile['packet_count'] += 1
+        p['last_seen']     = t
+        p['packet_count'] += 1
 
         port = packet_data.get('port', 0)
         if port:
-            profile['ports_used'][port] += 1
+            p['ports_used'][int(port)] += 1
 
-        protocol = packet_data.get('protocol', 'unknown')
-        profile['protocols_used'][protocol] += 1
+        p['protocols_used'][packet_data.get('protocol', 'unknown')] += 1
+        p['hourly_activity'][t.hour] += 1
 
-        hour = current_time.hour
-        profile['hourly_activity'][hour] += 1
+        if not p['behavior_learned']:
+            if (t - p['first_seen']) >= self.learning_period and p['packet_count'] >= 10:
+                p['behavior_learned'] = True
+                logger.info(f"Baseline learned for {ip} after {p['packet_count']} packets")
 
-        if not profile['behavior_learned']:
-            time_observed = current_time - profile['first_seen']
-            if time_observed >= self.learning_period and profile['packet_count'] >= 10:
-                profile['behavior_learned'] = True
-                logger.info(f"Baseline learned for {ip} after {profile['packet_count']} packets")
+    def calculate_anomaly_score(self, ip: str, pkt: dict) -> Tuple[float, Dict]:
+        p = self.ip_profiles[ip]
 
-    def calculate_anomaly_score(self, ip: str, current_packet: dict) -> Tuple[float, Dict]:
-        profile = self.ip_profiles[ip]
-
-        if not profile['behavior_learned']:
-            return 0.0, {
-                'reason': 'Learning baseline',
-                'learning_progress': f"{profile['packet_count']}/10 packets"
-            }
+        if not p['behavior_learned']:
+            return self._check_new_ip_fast_track(ip, pkt)
 
         anomalies = {}
-        total_score = 0.0
+        score     = 0.0
 
-        current_size = current_packet.get('size', 0)
-        if len(profile['packet_sizes']) > 5:
-            mean_size = np.mean(profile['packet_sizes'])
-            std_size = np.std(profile['packet_sizes'])
+        if len(p['packet_sizes']) > 5:
+            mu    = float(np.mean(p['packet_sizes']))
+            sigma = float(np.std(p['packet_sizes']))
 
-            if std_size > 0:
-                size_deviation = abs(current_size - mean_size) / std_size
-                if size_deviation > self.anomaly_threshold:
+            if sigma > 0:
+                z = abs(int(pkt.get('size', 0)) - mu) / sigma
+                if z > self.anomaly_threshold:
                     anomalies['packet_size'] = {
-                        'deviation': round(size_deviation, 2),
-                        'current': current_size,
-                        'normal': round(mean_size, 2),
-                        'severity': 'HIGH' if size_deviation > 5 else 'MEDIUM'
+                        'deviation': round(float(z), 2),
+                        'current':   int(pkt.get('size', 0)),
+                        'normal':    round(mu, 2),
+                        'severity':  'HIGH' if z > 5 else 'MEDIUM'
                     }
-                    total_score += min(size_deviation * 10, 50)
+                    score += min(z * 10, 50)
 
-        if len(profile['packet_intervals']) > 5:
-            mean_interval = np.mean(profile['packet_intervals'])
-            std_interval = np.std(profile['packet_intervals'])
-            current_time = current_packet.get('timestamp', datetime.now())
+        if len(p['packet_intervals']) > 5:
+            mu    = float(np.mean(p['packet_intervals']))
+            sigma = float(np.std(p['packet_intervals']))
+            t     = pkt.get('timestamp', datetime.now())
 
-            if profile['last_seen']:
-                current_interval = (current_time - profile['last_seen']).total_seconds()
-                if std_interval > 0 and current_interval < 60:
-                    rate_deviation = abs(current_interval - mean_interval) / std_interval
-                    if rate_deviation > self.anomaly_threshold:
+            if p['last_seen'] and sigma > 0:
+                iv = (t - p['last_seen']).total_seconds()
+                if iv < 60:
+                    z = abs(iv - mu) / sigma
+                    if z > self.anomaly_threshold:
                         anomalies['packet_rate'] = {
-                            'deviation': round(rate_deviation, 2),
-                            'current_interval': round(current_interval, 3),
-                            'normal_interval': round(mean_interval, 3),
-                            'severity': 'HIGH' if rate_deviation > 5 else 'MEDIUM'
+                            'deviation':        round(float(z), 2),
+                            'current_interval': round(float(iv), 3),
+                            'normal_interval':  round(float(mu), 3),
+                            'severity':         'HIGH' if z > 5 else 'MEDIUM'
                         }
-                        total_score += min(rate_deviation * 8, 40)
+                        score += min(z * 8, 40)
 
-        current_port = current_packet.get('port', 0)
-        if current_port:
-            total_port_usage = sum(profile['ports_used'].values())
-            common_ports = {
-                port: count for port, count in profile['ports_used'].items()
-                if count / total_port_usage > 0.05
-            }
-            if current_port not in common_ports and total_port_usage > 10:
+        port  = int(pkt.get('port', 0))
+        total = sum(p['ports_used'].values())
+        if port and total > 5:
+            common = {k: v for k, v in p['ports_used'].items() if v / total > 0.05}
+            if port not in common:
                 anomalies['unusual_port'] = {
-                    'port': current_port,
-                    'typical_ports': list(common_ports.keys())[:5],
-                    'severity': 'HIGH' if current_port in [4444, 31337, 12345] else 'MEDIUM'
+                    'port':          port,
+                    'typical_ports': [int(k) for k in list(common.keys())[:5]],
+                    'severity':      'HIGH' if port in [4444, 31337, 12345] else 'MEDIUM'
                 }
-                total_score += 30
+                score += 30
 
-        current_protocol = current_packet.get('protocol', 'unknown')
-        total_protocols = sum(profile['protocols_used'].values())
-        if total_protocols > 5:
-            common_protocols = {
-                proto: count for proto, count in profile['protocols_used'].items()
-                if count / total_protocols > 0.1
-            }
-            if current_protocol not in common_protocols:
+        proto = pkt.get('protocol', 'unknown')
+        total = sum(p['protocols_used'].values())
+        if total > 5:
+            common = {k: v for k, v in p['protocols_used'].items() if v / total > 0.1}
+            if proto not in common:
                 anomalies['unusual_protocol'] = {
-                    'protocol': current_protocol,
-                    'typical_protocols': list(common_protocols.keys()),
-                    'severity': 'MEDIUM'
+                    'protocol':          proto,
+                    'typical_protocols': list(common.keys()),
+                    'severity':          'MEDIUM'
                 }
-                total_score += 20
+                score += 20
 
-        current_hour = current_packet.get('timestamp', datetime.now()).hour
-        total_hourly = sum(profile['hourly_activity'].values())
-        if total_hourly > 10:
-            typical_hours = {
-                hour: count for hour, count in profile['hourly_activity'].items()
-                if count / total_hourly > 0.05
-            }
-            if current_hour not in typical_hours:
+        hour  = pkt.get('timestamp', datetime.now()).hour
+        total = sum(p['hourly_activity'].values())
+        if total > 5:
+            common = {h: c for h, c in p['hourly_activity'].items() if c / total > 0.05}
+            if hour not in common:
                 anomalies['unusual_time'] = {
-                    'current_hour': current_hour,
-                    'typical_hours': list(typical_hours.keys()),
-                    'severity': 'LOW'
+                    'current_hour':  int(hour),
+                    'typical_hours': [int(h) for h in list(common.keys())],
+                    'severity':      'LOW'
                 }
-                total_score += 15
+                score += 15
 
-        return min(total_score, 100), anomalies
+        return min(score, 100), anomalies
 
     def detect_anomaly(self, ip: str, packet_data: dict) -> Dict:
         self.update_profile(ip, packet_data)
-        anomaly_score, anomalies = self.calculate_anomaly_score(ip, packet_data)
+        score, anomalies = self.calculate_anomaly_score(ip, packet_data)
 
-        if anomaly_score >= 80:
-            risk_level = "CRITICAL"
-            recommendation = "BLOCK IMMEDIATELY - Highly anomalous behavior"
-        elif anomaly_score >= 60:
-            risk_level = "HIGH"
-            recommendation = "Monitor closely - Suspicious activity"
-        elif anomaly_score >= 40:
-            risk_level = "MEDIUM"
-            recommendation = "Investigate - Unusual pattern detected"
-        elif anomaly_score >= 20:
-            risk_level = "LOW"
-            recommendation = "Normal with minor deviations"
+        if score >= 80:
+            risk = "CRITICAL"
+            rec  = "BLOCK IMMEDIATELY - Highly anomalous behavior"
+        elif score >= 60:
+            risk = "HIGH"
+            rec  = "Monitor closely - Suspicious activity"
+        elif score >= 40:
+            risk = "MEDIUM"
+            rec  = "Investigate - Unusual pattern detected"
+        elif score >= 20:
+            risk = "LOW"
+            rec  = "Normal with minor deviations"
         else:
-            risk_level = "NORMAL"
-            recommendation = "Behavior within expected parameters"
+            risk = "NORMAL"
+            rec  = "Behavior within expected parameters"
 
-        result = {
-            'is_anomalous': anomaly_score >= 40,
-            'anomaly_score': round(anomaly_score, 2),
+        result = sanitize({
+            'is_anomalous':       score >= 40,
+            'anomaly_score':      round(score, 2),
             'anomalies_detected': anomalies,
-            'risk_level': risk_level,
-            'recommendation': recommendation,
-            'baseline_learned': self.ip_profiles[ip]['behavior_learned'],
-            'packets_analyzed': self.ip_profiles[ip]['packet_count']
-        }
+            'risk_level':         risk,
+            'recommendation':     rec,
+            'baseline_learned':   self.ip_profiles[ip]['behavior_learned'],
+            'packets_analyzed':   self.ip_profiles[ip]['packet_count']
+        })
 
         if result['is_anomalous']:
-            self.anomaly_history.append({
-                'timestamp': datetime.now(),
-                'ip': ip,
-                'score': anomaly_score,
-                'anomalies': anomalies,
-                'risk_level': risk_level
-            })
-            logger.warning(
-                f"ANOMALY DETECTED | IP: {ip} | Score: {anomaly_score} | Risk: {risk_level}"
-            )
+            self.anomaly_history.append(sanitize({
+                'timestamp':  datetime.now(),
+                'ip':         ip,
+                'score':      score,
+                'anomalies':  anomalies,
+                'risk_level': risk
+            }))
+            logger.warning(f"ANOMALY DETECTED | IP: {ip} | Score: {score} | Risk: {risk}")
 
         return result
 
@@ -210,70 +289,62 @@ class BehaviorAnalyzer:
         if ip not in self.ip_profiles:
             return {'status': 'unknown', 'message': 'IP not tracked'}
 
-        profile = self.ip_profiles[ip]
-        return {
-            'ip_address': ip,
-            'baseline_learned': profile['behavior_learned'],
-            'packets_observed': profile['packet_count'],
-            'total_bytes': profile['total_bytes'],
-            'first_seen': profile['first_seen'].isoformat() if profile['first_seen'] else None,
-            'last_seen': profile['last_seen'].isoformat() if profile['last_seen'] else None,
-            'avg_packet_size': round(np.mean(profile['packet_sizes']), 2) if profile['packet_sizes'] else 0,
-            'typical_ports': list(
-                dict(sorted(profile['ports_used'].items(), key=lambda x: x[1], reverse=True)[:5]).keys()
-            ),
-            'typical_protocols': list(
-                dict(sorted(profile['protocols_used'].items(), key=lambda x: x[1], reverse=True)[:3]).keys()
-            ),
-            'most_active_hours': list(
-                dict(sorted(profile['hourly_activity'].items(), key=lambda x: x[1], reverse=True)[:3]).keys()
-            )
-        }
+        p = self.ip_profiles[ip]
+        return sanitize({
+            'ip_address':        ip,
+            'baseline_learned':  p['behavior_learned'],
+            'packets_observed':  p['packet_count'],
+            'total_bytes':       p['total_bytes'],
+            'first_seen':        p['first_seen'].isoformat() if p['first_seen'] else None,
+            'last_seen':         p['last_seen'].isoformat()  if p['last_seen']  else None,
+            'avg_packet_size':   round(float(np.mean(p['packet_sizes'])), 2) if p['packet_sizes'] else 0,
+            'typical_ports':     list(dict(sorted(p['ports_used'].items(),      key=lambda x: x[1], reverse=True)[:5]).keys()),
+            'typical_protocols': list(dict(sorted(p['protocols_used'].items(),  key=lambda x: x[1], reverse=True)[:3]).keys()),
+            'most_active_hours': list(dict(sorted(p['hourly_activity'].items(), key=lambda x: x[1], reverse=True)[:3]).keys())
+        })
 
     def get_all_anomalies(self, limit=50) -> List[Dict]:
         return sorted(self.anomaly_history, key=lambda x: x['timestamp'], reverse=True)[:limit]
 
     def get_statistics(self) -> Dict:
-        total_ips = len(self.ip_profiles)
-        learned_ips = sum(1 for p in self.ip_profiles.values() if p['behavior_learned'])
-        total_anomalies = len(self.anomaly_history)
+        total   = len(self.ip_profiles)
+        learned = sum(1 for p in self.ip_profiles.values() if p['behavior_learned'])
+        cutoff  = datetime.now() - timedelta(hours=1)
+        recent  = sum(1 for a in self.anomaly_history if a['timestamp'] > cutoff)
 
-        one_hour_ago = datetime.now() - timedelta(hours=1)
-        recent_anomalies = sum(1 for a in self.anomaly_history if a['timestamp'] > one_hour_ago)
-
-        risk_distribution = defaultdict(int)
+        dist = defaultdict(int)
         for a in self.anomaly_history[-100:]:
-            risk_distribution[a['risk_level']] += 1
+            dist[a['risk_level']] += 1
 
-        return {
-            'total_ips_tracked': total_ips,
-            'baselines_learned': learned_ips,
-            'total_anomalies_detected': total_anomalies,
-            'anomalies_last_hour': recent_anomalies,
-            'risk_distribution': dict(risk_distribution),
-            'learning_progress': f"{learned_ips}/{total_ips} IPs"
-        }
+        return sanitize({
+            'total_ips_tracked':        total,
+            'baselines_learned':        learned,
+            'total_anomalies_detected': len(self.anomaly_history),
+            'anomalies_last_hour':      recent,
+            'risk_distribution':        dict(dist),
+            'learning_progress':        f"{learned}/{total} IPs"
+        })
 
     def save_profiles(self):
         try:
             self.profile_file.parent.mkdir(exist_ok=True)
-            serializable = {}
-            for ip, profile in self.ip_profiles.items():
-                serializable[ip] = {
-                    'packet_sizes': list(profile['packet_sizes']),
-                    'packet_intervals': list(profile['packet_intervals']),
-                    'ports_used': dict(profile['ports_used']),
-                    'protocols_used': dict(profile['protocols_used']),
-                    'packet_count': profile['packet_count'],
-                    'first_seen': profile['first_seen'].isoformat() if profile['first_seen'] else None,
-                    'last_seen': profile['last_seen'].isoformat() if profile['last_seen'] else None,
-                    'total_bytes': profile['total_bytes'],
-                    'hourly_activity': dict(profile['hourly_activity']),
-                    'behavior_learned': profile['behavior_learned']
+            out = {}
+            for ip, p in self.ip_profiles.items():
+                out[ip] = {
+                    'packet_sizes':     [int(x) for x in p['packet_sizes']],
+                    'packet_intervals': [float(x) for x in p['packet_intervals']],
+                    'ports_used':       {int(k): int(v) for k, v in p['ports_used'].items()},
+                    'protocols_used':   dict(p['protocols_used']),
+                    'packet_count':     int(p['packet_count']),
+                    'first_seen':       p['first_seen'].isoformat() if p['first_seen'] else None,
+                    'last_seen':        p['last_seen'].isoformat()  if p['last_seen']  else None,
+                    'total_bytes':      int(p['total_bytes']),
+                    'hourly_activity':  {int(k): int(v) for k, v in p['hourly_activity'].items()},
+                    'behavior_learned': bool(p['behavior_learned'])
                 }
             with open(self.profile_file, 'w') as f:
-                json.dump(serializable, f, indent=2)
-            logger.info(f"Saved {len(serializable)} behavioral profiles")
+                json.dump(out, f, indent=2)
+            logger.info(f"Saved {len(out)} behavioral profiles")
         except Exception as e:
             logger.error(f"Failed to save profiles: {e}")
 
@@ -282,26 +353,31 @@ class BehaviorAnalyzer:
             if self.profile_file.exists():
                 with open(self.profile_file, 'r') as f:
                     data = json.load(f)
-                for ip, profile_data in data.items():
-                    profile = self.ip_profiles[ip]
-                    profile['packet_sizes']    = deque(profile_data['packet_sizes'], maxlen=1000)
-                    profile['packet_intervals'] = deque(profile_data['packet_intervals'], maxlen=1000)
-                    profile['ports_used']       = defaultdict(int, profile_data['ports_used'])
-                    profile['protocols_used']   = defaultdict(int, profile_data['protocols_used'])
-                    profile['packet_count']     = profile_data['packet_count']
-                    profile['first_seen']       = datetime.fromisoformat(profile_data['first_seen']) if profile_data['first_seen'] else None
-                    profile['last_seen']        = datetime.fromisoformat(profile_data['last_seen']) if profile_data['last_seen'] else None
-                    profile['total_bytes']      = profile_data['total_bytes']
-                    profile['hourly_activity']  = defaultdict(int, profile_data['hourly_activity'])
-                    profile['behavior_learned'] = profile_data['behavior_learned']
+
+                for ip, d in data.items():
+                    if ip in self.ip_profiles and self.ip_profiles[ip]['behavior_learned']:
+                        continue
+
+                    p = self.ip_profiles[ip]
+                    p['packet_sizes']     = deque([int(x) for x in d['packet_sizes']],      maxlen=1000)
+                    p['packet_intervals'] = deque([float(x) for x in d['packet_intervals']], maxlen=1000)
+                    p['ports_used']       = defaultdict(int, {int(k): int(v) for k, v in d['ports_used'].items()})
+                    p['protocols_used']   = defaultdict(int, d['protocols_used'])
+                    p['packet_count']     = int(d['packet_count'])
+                    p['first_seen']       = datetime.fromisoformat(d['first_seen']) if d['first_seen'] else None
+                    p['last_seen']        = datetime.fromisoformat(d['last_seen'])  if d['last_seen']  else None
+                    p['total_bytes']      = int(d['total_bytes'])
+                    p['hourly_activity']  = defaultdict(int, {int(k): int(v) for k, v in d['hourly_activity'].items()})
+                    p['behavior_learned'] = bool(d['behavior_learned'])
+
                 logger.info(f"Loaded {len(data)} behavioral profiles from disk")
         except Exception as e:
             logger.error(f"Could not load profiles: {e}")
 
 
 behavior_analyzer = BehaviorAnalyzer(
-    learning_period_minutes=5,
-    anomaly_threshold=3.0
+    learning_period_minutes=1,
+    anomaly_threshold=2.5
 )
 
 

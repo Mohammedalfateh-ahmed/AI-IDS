@@ -1,0 +1,19 @@
+{
+  "ips_enabled": true,
+  "auto_block_enabled": true,
+  "firewall_blocking_enabled": true,
+  "confidence_threshold": 0.75,
+  "threat_score_threshold": 70,
+  "rate_limit_enabled": true,
+  "rate_limit_requests": 50,
+  "rate_limit_window": 60,
+  "temp_block_duration_hours": 24,
+  "perm_block_threshold": 90,
+  "challenge_threshold": 50,
+  "auto_unblock_enabled": true,
+  "email_alerts_enabled": true,
+  "log_all_traffic": false,
+  "protection_mode": "standard",
+  "block_countries": [],
+  "high_security_mode": false
+}

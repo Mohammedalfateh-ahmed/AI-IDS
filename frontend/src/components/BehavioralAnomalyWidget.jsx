@@ -191,7 +191,7 @@ export default function BehavioralAnomalyWidget() {
     { id: 'overview',  label: 'Overview',        icon: Layers   },
     { id: 'ips',       label: 'IP Profiles',     icon: Globe    },
     { id: 'anomalies', label: 'Anomaly Events',  icon: Activity },
-    { id: 'detection', label: 'Detection Engine',icon: Cpu      },
+    
   ];
 
   if (loading) return (
@@ -627,105 +627,6 @@ export default function BehavioralAnomalyWidget() {
           </Card>
         )}
 
-        {/* ════ DETECTION ENGINE TAB ════ */}
-        {activeTab === 'detection' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-
-              <Card>
-                <SHead icon={Cpu} title="Algorithm Specifications" />
-                <div style={{ padding: 18 }}>
-                  {[
-                    ['Algorithm',        '3-Sigma Statistical Deviation (Z-score)'],
-                    ['Detection rule',   'Z-score > 3.0 → Anomaly flagged'],
-                    ['Learning window',  '5 minutes per IP (10 packet minimum)'],
-                    ['Score range',      '0 – 100 (composite across all checks)'],
-                    ['Update rate',      'Real-time, every packet'],
-                    ['Persistence',      'Profiles saved to data/behavior_profiles.json'],
-                    ['Endpoints',        '/behavior/statistics · /behavior/anomalies · /behavior/ip/{ip} · /behavior/top-anomalous-ips'],
-                  ].map(([k, v]) => (
-                    <div key={k} style={{ display: 'flex', gap: 12, padding: '9px 0', borderBottom: `1px solid ${C.border}` }}>
-                      <span style={{ color: C.textMuted, fontSize: 12, minWidth: 130, flexShrink: 0 }}>{k}</span>
-                      <span style={{ color: C.text, fontSize: 12, fontWeight: 600 }}>{v}</span>
-                    </div>
-                  ))}
-                </div>
-              </Card>
-
-              <Card>
-                <SHead icon={Lock} title="5 Monitored Behavioral Features" />
-                <div style={{ padding: 18 }}>
-                  {[
-                    { name: 'Packet Size Anomaly',  desc: 'Detects unusually large/small packets vs per-IP mean ± σ', color: C.critical },
-                    { name: 'Packet Rate Anomaly',  desc: 'Flags abnormal transmission speed (interval between packets)', color: C.high },
-                    { name: 'Unusual Port Usage',   desc: 'Identifies access to ports outside normal usage pattern (>5% threshold)', color: C.medium },
-                    { name: 'Protocol Deviation',   desc: 'Catches use of protocols not in baseline (>10% usage threshold)', color: C.blueMid },
-                    { name: 'Temporal Anomaly',     desc: 'Flags activity outside normal active hours for that specific IP', color: C.low },
-                  ].map(({ name, desc, color }) => (
-                    <div key={name} style={{ display: 'flex', gap: 12, marginBottom: 14, paddingBottom: 14, borderBottom: `1px solid ${C.border}` }}>
-                      <div style={{ width: 4, borderRadius: 4, background: color, flexShrink: 0 }} />
-                      <div>
-                        <div style={{ color: C.text, fontSize: 12, fontWeight: 700, marginBottom: 3 }}>{name}</div>
-                        <div style={{ color: C.textMuted, fontSize: 11, lineHeight: 1.5 }}>{desc}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </Card>
-            </div>
-
-            {/* Flow diagram */}
-            <Card>
-              <SHead icon={Zap} title="Dual-Layer Detection Flow" />
-              <div style={{ padding: 20, display: 'flex', alignItems: 'stretch', gap: 0 }}>
-                {[
-                  { label: 'Packet arrives',       icon: Radio,    color: C.textMuted, desc: 'Raw network packet captured from live traffic or simulation' },
-                  { label: 'ML Model (XGBoost)',   icon: Brain,    color: C.blueMid,   desc: 'Known attack pattern matching\nNSL-KDD · 77.3% accuracy' },
-                  { label: 'Behavioral engine',    icon: Activity, color: C.medium,    desc: '3σ deviation from\nper-IP learned baseline' },
-                  { label: 'Combined decision',    icon: Zap,      color: C.high,      desc: 'Block if EITHER layer\ntriggers — catches zero-days' },
-                  { label: 'Action taken',         icon: Lock,     color: C.low,       desc: 'Block IP · Alert admin\nLog event · Store profile' },
-                ].map((step, i, arr) => (
-                  <React.Fragment key={step.label}>
-                    <div style={{ flex: 1, textAlign: 'center', padding: '0 6px' }}>
-                      <div style={{ background: `${step.color}10`, border: `2px solid ${step.color}30`, borderRadius: 10, padding: '14px 8px' }}>
-                        <div style={{ background: `${step.color}18`, borderRadius: '50%', width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 8px' }}>
-                          <step.icon size={16} color={step.color} />
-                        </div>
-                        <div style={{ color: C.text, fontSize: 11, fontWeight: 700, marginBottom: 5 }}>{step.label}</div>
-                        <div style={{ color: C.textMuted, fontSize: 10, lineHeight: 1.5, whiteSpace: 'pre-line' }}>{step.desc}</div>
-                      </div>
-                    </div>
-                    {i < arr.length - 1 && (
-                      <div style={{ display: 'flex', alignItems: 'center', color: C.borderBlue, fontSize: 20, fontWeight: 700, flexShrink: 0, paddingBottom: 20 }}>→</div>
-                    )}
-                  </React.Fragment>
-                ))}
-              </div>
-            </Card>
-
-            {/* Live API status check */}
-            <Card>
-              <SHead icon={Network} title="API Endpoint Status" sub="Verifying backend behavioral endpoints" />
-              <div style={{ padding: 16, display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
-                {[
-                  { path: '/behavior/statistics',         label: 'Statistics',       data: stats ? `${stats.total_ips_tracked} IPs tracked` : null },
-                  { path: '/behavior/top-anomalous-ips',  label: 'Top Anomalous IPs',data: `${topIPs.length} IPs returned` },
-                  { path: '/behavior/anomalies',          label: 'Anomaly Events',   data: `${anomalies.length} events returned` },
-                  { path: '/behavior/ip/{ip_address}',    label: 'IP Profile Detail',data: activeIP ? `Last: ${activeIP}` : 'Click an IP to test' },
-                ].map(({ path, label, data }) => (
-                  <div key={path} style={{ display: 'flex', alignItems: 'center', gap: 10, background: C.surfaceAlt, borderRadius: 8, padding: '10px 14px', border: `1px solid ${C.border}` }}>
-                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: connected ? C.low : C.critical, flexShrink: 0, boxShadow: connected ? `0 0 5px ${C.low}` : 'none' }} />
-                    <div style={{ flex: 1 }}>
-                      <div style={{ color: C.text, fontSize: 12, fontWeight: 700 }}>{label}</div>
-                      <div style={{ color: C.textMuted, fontSize: 10, fontFamily: 'monospace', marginTop: 1 }}>GET {path}</div>
-                    </div>
-                    {data && <span style={{ color: C.low, fontSize: 10, fontWeight: 600 }}>{data}</span>}
-                  </div>
-                ))}
-              </div>
-            </Card>
-          </div>
-        )}
 
       </div>
     </div>
