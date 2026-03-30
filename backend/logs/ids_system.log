@@ -178021,3 +178021,11 @@ ConnectionResetError: [WinError 10054] An existing connection was forcibly close
 2026-03-26 17:19:04,201 | WARNING | ANOMALY DETECTED | IP: 192.168.1.161 | Score: 88.84798052828268 | Risk: CRITICAL
 2026-03-26 17:19:04,204 | WARNING | 🔒 BLOCKED | IP: 192.168.1.161 | Reason: Behavioral Anomaly: Score 88.85 - CRITICAL
 2026-03-26 17:19:07,229 | INFO | 🚨 ATTACK: satan (Probe) - ML: 82.2% | Behavior: 88.85/100 - Blocked: True
+2026-03-27 10:39:19,586 | INFO | LOGIN_SUCCESS | User: admin | Role: admin
+2026-03-27 10:41:06,229 | WARNING | ANOMALY DETECTED | IP: 192.168.1.217 | Score: 62.758671301431264 | Risk: HIGH
+2026-03-27 10:41:06,234 | WARNING | 🔒 BLOCKED | IP: 192.168.1.217 | Reason: Behavioral Anomaly: Score 62.76 - HIGH
+2026-03-27 10:41:08,705 | INFO | 🚨 ATTACK: smurf (DoS) - ML: 85.9% | Behavior: 62.76/100 - Blocked: True
+2026-03-27 10:42:01,484 | INFO | LOGIN_SUCCESS | User: test | Role: user
+2026-03-27 10:42:07,596 | WARNING | ANOMALY DETECTED | IP: 192.168.1.227 | Score: 80.0 | Risk: CRITICAL
+2026-03-27 10:42:07,600 | WARNING | 🔒 BLOCKED | IP: 192.168.1.227 | Reason: Behavioral Anomaly: Score 80.0 - CRITICAL
+2026-03-27 10:42:09,433 | INFO | 🚨 ATTACK: perl (U2R) - ML: 88.3% | Behavior: 80.0/100 - Blocked: True
