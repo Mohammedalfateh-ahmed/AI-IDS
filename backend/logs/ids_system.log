@@ -178029,3 +178029,29 @@ ConnectionResetError: [WinError 10054] An existing connection was forcibly close
 2026-03-27 10:42:07,596 | WARNING | ANOMALY DETECTED | IP: 192.168.1.227 | Score: 80.0 | Risk: CRITICAL
 2026-03-27 10:42:07,600 | WARNING | 🔒 BLOCKED | IP: 192.168.1.227 | Reason: Behavioral Anomaly: Score 80.0 - CRITICAL
 2026-03-27 10:42:09,433 | INFO | 🚨 ATTACK: perl (U2R) - ML: 88.3% | Behavior: 80.0/100 - Blocked: True
+2026-04-13 08:47:13,128 | INFO | LOGIN_SUCCESS | User: admin | Role: admin
+2026-04-13 08:47:20,737 | WARNING | ANOMALY DETECTED | IP: 192.168.1.129 | Score: 58.28504388981112 | Risk: MEDIUM
+2026-04-13 08:47:20,788 | INFO | 🚨 ATTACK: neptune (DoS) - ML: 80.7% | Behavior: 58.29/100 - Blocked: False
+2026-04-13 08:47:35,436 | WARNING | ANOMALY DETECTED | IP: 192.168.1.184 | Score: 86.50152408220544 | Risk: CRITICAL
+2026-04-13 08:47:35,473 | INFO | 🚨 ATTACK: portsweep (Probe) - ML: 81.9% | Behavior: 86.5/100 - Blocked: False
+2026-04-13 08:47:36,564 | WARNING | ANOMALY DETECTED | IP: 192.168.1.159 | Score: 45.0 | Risk: MEDIUM
+2026-04-13 08:47:36,568 | INFO | 🚨 ATTACK: guess_passwd (R2L) - ML: 90.2% | Behavior: 45.0/100 - Blocked: False
+2026-04-13 08:47:37,301 | WARNING | ANOMALY DETECTED | IP: 192.168.1.108 | Score: 95.0 | Risk: CRITICAL
+2026-04-13 08:47:37,313 | WARNING | 🔒 BLOCKED | IP: 192.168.1.108 | Reason: Behavioral Anomaly: Score 95.0 - CRITICAL
+2026-04-13 08:47:39,594 | INFO | 🚨 ATTACK: buffer_overflow (U2R) - ML: 90.1% | Behavior: 95.0/100 - Blocked: True
+2026-04-13 08:57:41,596 | WARNING | ANOMALY DETECTED | IP: 192.168.1.179 | Score: 86.3010899472952 | Risk: CRITICAL
+2026-04-13 08:57:41,601 | INFO | 🚨 ATTACK: satan (Probe) - ML: 82.9% | Behavior: 86.3/100 - Blocked: False
+2026-04-13 08:57:50,289 | WARNING | ANOMALY DETECTED | IP: 192.168.1.184 | Score: 45.0 | Risk: MEDIUM
+2026-04-13 08:57:50,293 | INFO | 🚨 ATTACK: guess_passwd (R2L) - ML: 82.7% | Behavior: 45.0/100 - Blocked: False
+2026-04-13 08:57:50,804 | WARNING | ANOMALY DETECTED | IP: 192.168.1.125 | Score: 45.0 | Risk: MEDIUM
+2026-04-13 08:57:50,809 | INFO | 🚨 ATTACK: ftp_write (R2L) - ML: 83.0% | Behavior: 45.0/100 - Blocked: False
+2026-04-13 10:24:45,185 | INFO | LOGIN_SUCCESS | User: admin | Role: admin
+2026-04-13 10:25:17,230 | WARNING | ANOMALY DETECTED | IP: 192.168.1.174 | Score: 74.55761966842772 | Risk: HIGH
+2026-04-13 10:25:17,237 | WARNING | 🔒 BLOCKED | IP: 192.168.1.174 | Reason: Behavioral Anomaly: Score 74.56 - HIGH
+2026-04-13 10:25:19,291 | INFO | 🚨 ATTACK: satan (Probe) - ML: 89.2% | Behavior: 74.56/100 - Blocked: True
+2026-04-13 10:25:19,825 | WARNING | ANOMALY DETECTED | IP: 192.168.1.241 | Score: 43.80923192586551 | Risk: MEDIUM
+2026-04-13 10:25:21,546 | INFO | 🚨 ATTACK: back (DoS) - ML: 84.1% | Behavior: 43.81/100 - Blocked: False
+2026-04-13 10:25:38,952 | INFO | 🚨 ATTACK: imap (R2L) - ML: 93.3% | Behavior: 30.0/100 - Blocked: False
+2026-04-13 11:10:06,246 | WARNING | ANOMALY DETECTED | IP: 192.168.1.168 | Score: 71.60463837432144 | Risk: HIGH
+2026-04-13 11:10:06,254 | WARNING | 🔒 BLOCKED | IP: 192.168.1.168 | Reason: Behavioral Anomaly: Score 71.6 - HIGH
+2026-04-13 11:10:08,251 | INFO | 🚨 ATTACK: ipsweep (Probe) - ML: 93.7% | Behavior: 71.6/100 - Blocked: True

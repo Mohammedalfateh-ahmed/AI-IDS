@@ -622,7 +622,8 @@ async def simulate_attack(attack_type: str = "random", current_user: dict = Depe
         })
         
         # === EMAIL ALERT ===
-        if send_wazuh_style_alert and blocked:
+        # === EMAIL ALERT ===
+        if send_wazuh_style_alert:
             try:
                 send_wazuh_style_alert({
                     'attack_type': selected,
@@ -636,7 +637,6 @@ async def simulate_attack(attack_type: str = "random", current_user: dict = Depe
                 })
             except Exception as e:
                 logger.error(f"❌ Email send failed: {e}")
-        
         # === LOG ===
         system_logs_collection.insert_one({
             "timestamp": datetime.now(),
