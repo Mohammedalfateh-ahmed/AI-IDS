@@ -62,6 +62,10 @@ export const deleteUser = async (username) => {
   const response = await api.delete(`/users/${username}`);
   return response.data;
 };
+export const updateUser = async (username, userData) => {
+  const response = await api.patch(`/users/${username}`, userData);
+  return response.data;
+};
 
 export const getStats = async () => {
   const response = await api.get('/stats');

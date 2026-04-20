@@ -319,7 +319,32 @@ async def delete_user(username: str, current_user: dict = Depends(get_current_ad
     })
     
     return {"message": "User deleted successfully"}
+class UserUpdate(BaseModel):
+    email: str = ""
+    role: str = ""
 
+@app.patch("/users/{username}")
+async def update_user(username: str, update_data: UserUpdate, current_user: dict = Depends(get_current_admin_user)):
+    users = load_users()
+    if username not in users:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if update_data.email:
+        users[username]["email"] = update_data.email
+    if update_data.role:
+        users[username]["role"] = update_data.role
+    
+    save_users(users)
+    
+    system_logs_collection.insert_one({
+        "timestamp": datetime.now(),
+        "level": "INFO",
+        "message": f"User updated: {username}",
+        "user": current_user['username'],
+        "details": {"updated_username": username, "email": update_data.email, "role": update_data.role}
+    })
+    
+    return {"message": "User updated successfully"}
 @app.get("/")
 async def root():
     return {"message": "IDS API Running", "status": "online"}
