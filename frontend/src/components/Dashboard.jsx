@@ -7,7 +7,7 @@ import SystemLogs from './SystemLogs';
 import ThreatIntelligence from './ThreatIntelligence';
 import BlockedIPsPanel from './BlockedIPsPanel';
 import AttackPrediction from './AttackPrediction';
-import IntelligencePanel from './IntelligencePanel';
+import IntelligencePage from './IntelligencePanel';
 import AttackDistributionChart from './AttackDistributionChart';
 import AttacksOverTimeChart from './AttacksOverTimeChart';
 import TopIPsChart from './TopIPsChart';
@@ -433,13 +433,7 @@ export default function Dashboard({ user, onLogout }) {
           </div>
         )}
 
-        {activeTab === 'intelligence' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <IntelligencePanel />
-            <AttackPrediction />
-            <BlockedIPsPanel userRole={user?.role} />
-          </div>
-        )}
+        {activeTab === 'intelligence' && <IntelligencePage />}
 
         {activeTab === 'behavioral' && <BehavioralAnomalyWidget />}
 
