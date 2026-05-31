@@ -1,23 +1,19 @@
-# Render Blueprint for AI-IDS
-# This file defines all services for automatic deployment on Render
-
 services:
-  # Backend API Service
   - type: web
     name: ai-ids-backend
     env: python
     region: oregon
-    plan: free  # Change to 'starter' or 'standard' for production
+    plan: free
     buildCommand: pip install --upgrade pip && pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --app-dir backend
     healthCheckPath: /health
     envVars:
       - key: MONGODB_URI
-        sync: false  # Set manually in Render dashboard
+        sync: false
       - key: DATABASE_NAME
         value: ai_ids
       - key: SECRET_KEY
-        generateValue: true  # Auto-generate secure key
+        generateValue: true
       - key: ALGORITHM
         value: HS256
       - key: ACCESS_TOKEN_EXPIRE_MINUTES
@@ -30,17 +26,16 @@ services:
           name: ai-ids-frontend
           property: host
       - key: SMTP_SERVER
-        sync: false  # Set manually
+        sync: false
       - key: SMTP_PORT
         value: 587
       - key: SMTP_USERNAME
-        sync: false  # Set manually
+        sync: false
       - key: SMTP_PASSWORD
-        sync: false  # Set manually
+        sync: false
       - key: ALERT_EMAIL_RECIPIENT
-        sync: false  # Set manually
+        sync: false
 
-  # Frontend Static Site
   - type: web
     name: ai-ids-frontend
     env: static
@@ -57,9 +52,3 @@ services:
       - type: rewrite
         source: /*
         destination: /index.html
-
-# Database (MongoDB) - Use MongoDB Atlas instead
-# databases:
-#   - name: ai-ids-mongodb
-#     plan: free
-#     Note: Render doesn't offer free MongoDB. Use MongoDB Atlas instead.
