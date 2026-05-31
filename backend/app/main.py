@@ -1,3 +1,6 @@
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import HTTPBearer
 from fastapi.security.http import HTTPAuthorizationCredentials
@@ -21,9 +24,6 @@ from feature_extraction import extract_features_from_packet, generate_attack_fea
 from intelligence_engine import intelligence_engine
 from datetime import datetime, timedelta, timezone
 from smart_ips_system import smart_ips
-import sys
-import os
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from behavior_analyzer import behavior_analyzer
 Path("logs").mkdir(exist_ok=True)
 def is_ips_enabled():
